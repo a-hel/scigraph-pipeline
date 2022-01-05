@@ -2,14 +2,14 @@
 import csv
 import json
 from datetime import date, datetime
-from pony.orm import Database, Required, Optional, commit, PrimaryKey, Set
+from pony.orm import Database, Required, Optional, commit, PrimaryKey, Set, db_session, select
 
 db = Database()
 
 class Article(db.Entity):
     _table_ = ('SciGraphPipeline', 'articles')
     id = PrimaryKey(int, auto=True)
-    doi = Required(str)
+    doi = Required(str, index=True)
     uri = Required(str)
     summaries = Set("Summary", reverse="article_id")
 
@@ -67,26 +67,51 @@ class Pony:
 
     def _commit(self, table, last_record):
         commit()
-        checkpoint = {"table": table.name,
+        checkpoint = {"table": ".".join(table._table_),
         "last_processed": last_record.id,
         "timestamp": datetime.now()}
         self.logs(**checkpoint)
         commit()
 
+    @db_session()
     def _add_record(self, data, table, periodic_commit=50):
         for e, elem in enumerate(data):
             last_record = table(**elem)
             if not e % periodic_commit:
+                print("Processing %s: %s" % (e, last_record))
                 self._commit(table, last_record)
-        self._commit(table, last_record)
+        try:
+            self._commit(table, last_record)
+        except UnboundLocalError:
+            return None
+        return last_record.id
+
+    #@db_session()
+    def _get_record(self, table):
+        elems = select(c for c in table if not c.named_entities.id)
+        yield from elems
+
+    def get_conclusion(self):
+        elems = select(c for c in self.summaries if c.named_entities.id)
+        
+        #elems = select((c.id, c.conclusion, c.named_entities.matched_term, c.named_entities.preferred_term) for c in self.summaries if c.named_entities.id)
+        yield from elems
+
+    
+    def add_record(self, data, table, periodic_commit=50):
+        return self._add_record(data, table, periodic_commit)
 
     def add_articles(self, data):
-        self._add_record(data, self.articles)
+        last_id = self._add_record(data, self.articles, periodic_commit=1000)
+        return {"article_id": last_id}
 
     def add_summary(self, data):
-        for elem in data:
-            Summary(**elem)
-        commit()
+        last_id = self._add_record(data, self.summaries, periodic_commit=100)
+        return {"summary_id": last_id}
+
+    def add_named_entity(self, data):
+        last_id = self._add_record(data, self.named_entities, periodic_commit=100)
+        return {"named_entity_id": last_id}
         
 
 
