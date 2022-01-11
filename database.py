@@ -23,7 +23,8 @@ class Summary(db.Entity):
     scitldr_version = Required(str)
     error = Optional(str)
     named_entities = Set("NamedEntity", reverse="summary_id")
-    triples = Set("Triple", reverse="summary_id")
+    nodes = Set("Node", reverse="summary_id")
+    edges = Set("Edge", reverse="summary_id")
 
 class NamedEntity(db.Entity):
     _table_ = ('SciGraphPipeline', 'named_entities')
@@ -33,17 +34,22 @@ class NamedEntity(db.Entity):
     preferred_term = Required(str)
     cui = Required(str)
     metamap_version = Required(str)
-    objects = Set('Triple', reverse='object_id')
-    subjects = Set('Triple', reverse='subject_id')
 
-class Triple(db.Entity):
-    _table_ = ('SciGraphPipeline', 'triples')
+class Node(db.Entity):
+    _table_ = ('SciGraphPipeline', 'nodes')
     id = PrimaryKey(int, auto=True)
-    summary_id = Required(Summary, reverse='triples')
-    subject_id = Required(NamedEntity, reverse='subjects')
+    summary_id = Required(Summary, reverse='nodes')
+    cui = Required(str, unique=True)
+    matched = Optional(str)
+    preferred = Required(str)
+
+class Edge(db.Entity):
+    _table_ = ('SciGraphPipeline', 'edges')
+    id = PrimaryKey(int, auto=True)
+    summary_id = Required(Summary, reverse='edges')
     predicate = Required(str)
-    object_id = Required(NamedEntity, reverse='objects')
-    svo_version = Required(str)
+    cui_left = Required(str)
+    cui_right = Required(str)
 
 class Log(db.Entity):
     _table_ = ('SciGraphPipeline', 'log')
@@ -61,8 +67,9 @@ class Pony:
         self.db.generate_mapping(create_tables=True)
         self.articles = Article
         self.summaries = Summary
-        self.triples = Triple
         self.named_entities = NamedEntity
+        self.nodes = Node
+        self.edges = Edge
         self.logs = Log
 
     def _commit(self, table, last_record):
