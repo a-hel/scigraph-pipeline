@@ -16,11 +16,16 @@ class Triple:
         self._is_matched = False
 
     def __repr__(self):
-        ret_val = f"{self.subject}\n  -> {self.verb}\n     -> {self.object_}"
+        if self._is_matched:
+            ret_val = " | ".join([ne.matched_term for ne in itertools.chain(*self.subject_nes)]) + \
+                "\n -> " + " ".join(self.predicate) + \
+                "\n     -> " + " | ".join([ne.matched_term for ne in itertools.chain(*self.object_nes)])
+        else:
+            ret_val = f"{self.subject}\n  -> {self.verb}\n     -> {self.object_}"
         return ret_val
 
     def __bool__(self):
-        return not self._is_matched or (self.subject_nes and self.object_nes)
+        return (not self._is_matched or (bool(self.subject_nes) and bool(self.object_nes)))
 
     def _to_predicate(self, verb):
         yield from verb
@@ -32,7 +37,7 @@ class Triple:
         for tok in self._to_predicate(verb):
             if tok.idx >= cutoff or tok.pos_ in ["dobj", "dative"]:
                 break
-            yield tok
+            yield tok.orth_
 
     def _find_ne(self, span, ne):
         matched = ne.matched_term
@@ -57,7 +62,7 @@ class Triple:
         if not self.object_nes:
             return
         first_obj = min(tok.idx for tok in itertools.chain(*self.object_nes))
-        self.predicate = self.prepare_predicate(self.verb, cutoff = first_obj)
+        self.predicate = list(self.prepare_predicate(self.verb, cutoff = first_obj))
 
     def nodes(self):
         pass

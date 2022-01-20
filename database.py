@@ -25,6 +25,16 @@ class Summary(db.Entity):
     named_entities = Set("NamedEntity", reverse="summary_id")
     nodes = Set("Node", reverse="summary_id")
     edges = Set("Edge", reverse="summary_id")
+    simple_conclusions = Set("SimpleConclusions", reverse="summary_id")
+
+class SimpleConclusions(db.Entity):
+    _table_ = ('SciGraphPipeline', 'simple_conclusions')
+    id = PrimaryKey(int, auto=True)
+    summary_id = Required(Summary, reverse="simple_conclusions")
+    conclusion = Required(str)
+    date_added = Required(datetime)
+    muss_version = Required(str)
+    error = Optional(str)
 
 class NamedEntity(db.Entity):
     _table_ = ('SciGraphPipeline', 'named_entities')
@@ -67,6 +77,7 @@ class Pony:
         self.db.generate_mapping(create_tables=True)
         self.articles = Article
         self.summaries = Summary
+        self.simple_conclusions = SimpleConclusions
         self.named_entities = NamedEntity
         self.nodes = Node
         self.edges = Edge
@@ -95,10 +106,10 @@ class Pony:
 
     #@db_session()
     def _get_record(self, table):
-        elems = select(c for c in table if not c.named_entities.id)
+        elems = select(c for c in table)
         yield from elems
 
-    def get_conclusion(self):
+    def get_summaries(self):
         elems = select(c for c in self.summaries if c.named_entities.id)
         
         #elems = select((c.id, c.conclusion, c.named_entities.matched_term, c.named_entities.preferred_term) for c in self.summaries if c.named_entities.id)
@@ -107,6 +118,17 @@ class Pony:
     
     def add_record(self, data, table, periodic_commit=50):
         return self._add_record(data, table, periodic_commit)
+
+    def get_records(self, table, run_all=False, downstream=None):
+        if run_all:
+            yield from self._get_record(table)
+        else:
+            yield from self._get_unprocessed_records(table, downstream)
+
+    def _get_unprocessed_records(self, table, downstream):
+        elems = select(c for c in table if not getattr(c, downstream._table_[-1]).id)
+        yield from elems
+
 
     def add_articles(self, data):
         last_id = self._add_record(data, self.articles, periodic_commit=1000)
