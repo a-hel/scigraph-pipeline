@@ -20,4 +20,3 @@ output2 = step2.run_all(data=[output1], write=False)
 
 for op in output2:
     print(op)
-

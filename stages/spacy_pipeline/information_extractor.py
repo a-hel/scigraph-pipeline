@@ -1,4 +1,5 @@
 import warnings
+import logging
 import itertools
 
 import spacy
@@ -7,6 +8,8 @@ from spacy.tokens import Doc
 
 class Triple:
     def __init__(self, subject, verb, object_):
+        if verb is None:
+            raise AttributeError("No verb found.")
         self.subject = subject
         self.object_ = object_
         self.verb = verb
@@ -17,15 +20,25 @@ class Triple:
 
     def __repr__(self):
         if self._is_matched:
-            ret_val = " | ".join([ne.matched_term for ne in itertools.chain(*self.subject_nes)]) + \
-                "\n -> " + " ".join(self.predicate) + \
-                "\n     -> " + " | ".join([ne.matched_term for ne in itertools.chain(*self.object_nes)])
+            ret_val = (
+                " | ".join(
+                    [ne.matched_term for ne in itertools.chain(*self.subject_nes)]
+                )
+                + "\n -> "
+                + " ".join(self.predicate)
+                + "\n     -> "
+                + " | ".join(
+                    [ne.matched_term for ne in itertools.chain(*self.object_nes)]
+                )
+            )
         else:
             ret_val = f"{self.subject}\n  -> {self.verb}\n     -> {self.object_}"
         return ret_val
 
     def __bool__(self):
-        return (not self._is_matched or (bool(self.subject_nes) and bool(self.object_nes)))
+        return not self._is_matched or (
+            bool(self.subject_nes) and bool(self.object_nes)
+        )
 
     def _to_predicate(self, verb):
         yield from verb
@@ -54,58 +67,68 @@ class Triple:
                 ne.idx = start
                 yield ne
 
-
     def match(self, nes):
         self._is_matched = True
-        self.subject_nes = list(filter(None, [list(self._find_ne(self.subject, ne)) for ne in nes]))
-        self.object_nes = list(filter(None, [list(self._find_ne(self.object_, ne)) for ne in nes]))
+        self.subject_nes = list(
+            itertools.chain(
+                *filter(None, [list(self._find_ne(self.subject, ne)) for ne in nes])
+            )
+        )
+        self.object_nes = list(
+            itertools.chain(
+                *filter(None, [list(self._find_ne(self.object_, ne)) for ne in nes])
+            )
+        )
         if not self.object_nes:
             return
-        first_obj = min(tok.idx for tok in itertools.chain(*self.object_nes))
-        self.predicate = list(self.prepare_predicate(self.verb, cutoff = first_obj))
+        first_obj = min(tok.idx for tok in self.object_nes)
+        self.predicate = list(self.prepare_predicate(self.verb, cutoff=first_obj))
+        return self.subject_nes, self.predicate, self.object_nes
 
     def nodes(self):
         pass
 
     def edges(self):
         pass
-        
 
     @staticmethod
     def from_svo(clause):
         obj = clause.direct_object or clause.indirect_object
         subj = clause.subject
         verb = clause.verb
-        return(Triple(subject=subj, verb=verb, object_=obj))
+        return Triple(subject=subj, verb=verb, object_=obj)
 
     @staticmethod
     def from_svc(clause):
         subj = clause.subject
         verb = clause.verb
         obj = clause.complement
-        return(Triple(subject=subj, verb=verb, object_=obj))
+        return Triple(subject=subj, verb=verb, object_=obj)
 
-        
+
 @spacy.Language.factory("InformationExtractor")
 class InformationExtractor:
-    
-    def __init__(self, nlp, name = "InformationExtractor"):
+    def __init__(self, nlp, name="InformationExtractor"):
         Doc.set_extension("triples", default=[], force=True)
-        #.set_extension("triples")
-    
+        # .set_extension("triples")
+
     def extract_triples(self, clauses):
-        dispatch = {"SVO": Triple.from_svo,
-        "SVC": Triple.from_svc}
+        dispatch = {"SVO": Triple.from_svo, "SVC": Triple.from_svc}
         for clause in clauses:
             if clause.type in dispatch.keys():
                 func = dispatch[clause.type]
-                yield func(clause)
+                try:
+                    yield func(clause)
+                except AttributeError:
+                    logging.error("No verb in clause %s" % clause)
+                    yield None
+
             else:
                 yield None
-    
+
     def __call__(self, doc):
-        if not hasattr(doc._, 'clauses'):
-            raise AttributeError('This pipeline step must be run after claucy.')
+        if not hasattr(doc._, "clauses"):
+            raise AttributeError("This pipeline step must be run after claucy.")
         if doc._.clauses is None:
             doc._.triples = None
             return doc

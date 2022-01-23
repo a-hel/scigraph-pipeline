@@ -1,13 +1,10 @@
 from neo4j import GraphDatabase
 
 
-class DbDriver():
-    def __init__(self,
-                 username,
-                 password,
-                 dbname='scigraph',
-                 host='localhost',
-                 port='7687'):
+class DbDriver:
+    def __init__(
+        self, username, password, dbname="scigraph", host="localhost", port="7687"
+    ):
         self.username = username
         self.dbname = dbname
         self.host = host
@@ -15,7 +12,7 @@ class DbDriver():
         self.uri = "bolt://%s:%s/%s/data" % (host, port, dbname)
         self.driver = GraphDatabase.driver(self.uri, auth=(username, password))
         with self.driver.session() as session:
-            _ = session.run('match(n) return n;')
+            _ = session.run("match(n) return n;")
 
     def _run_query(self, query, **kwargs):
         with self.driver.session() as session:
@@ -34,23 +31,20 @@ class DbDriver():
 
 
 class Edge:
-    def __init__(self,
-                 start,
-                 end,
-                 edgetype,
-                 data={},
-                 match_on=['name', 'name']):
+    def __init__(self, start, end, edgetype, data={}, match_on=["name", "name"]):
         self.edgetype = edgetype
         self.data = data
         self.start = start
         self.end = end
         self.match_on_left, self.match_on_right = match_on
         if self.match_on_left not in self.start.data:
-            raise ValueError("Unable to match on %s. Value not in left node" %
-                             self.match_on_left)
+            raise ValueError(
+                "Unable to match on %s. Value not in left node" % self.match_on_left
+            )
         if self.match_on_right not in self.end.data:
-            raise ValueError("Unable to match on %s. Value not in right node" %
-                             self.match_on_right)
+            raise ValueError(
+                "Unable to match on %s. Value not in right node" % self.match_on_right
+            )
 
     def __repr__(self):
         rep = f"Edge('{self.start.nodetype}', '{self.end.nodetype}', edgetype='{self.edgetype}', data={self.data.__repr__()}, match_on=['{self.match_on_left}', '{self.match_on_left}']"
@@ -60,15 +54,13 @@ class Edge:
         self.data.update(data)
 
     def is_synonym(self):
-        return self.edgetype == '_SYN'
+        return self.edgetype == "_SYN"
 
     def create_stmt(self):
         if not self.data:
             datastring = ""
         else:
-            labels = [
-                "{label}:${label}".format(label=label) for label in self.data
-            ]
+            labels = ["{label}:${label}".format(label=label) for label in self.data]
             datastring = " {%s}" % ", ".join(labels)
         query = f"""MATCH
 (a:{self.start.nodetype}),
@@ -99,9 +91,7 @@ class Node:
         if not self.data:
             datastring = ""
         else:
-            labels = [
-                "{label}:${label}".format(label=label) for label in self.data
-            ]
+            labels = ["{label}:${label}".format(label=label) for label in self.data]
             datastring = " {%s}" % ", ".join(labels)
         query = f"MERGE (a:{self.nodetype} {datastring})"
         return query
