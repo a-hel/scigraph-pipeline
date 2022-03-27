@@ -45,7 +45,7 @@ class PipelineStep:
                     print("Processing entry no %s." % e)
 
                 for k, v in downstream.items():
-                    items = elem.get(k, None)
+                    items = elem.get(k, elem)
                     if isinstance(items, dict):
                         items = [items]
                     if items is None:

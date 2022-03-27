@@ -22,6 +22,7 @@ class Article(db.Entity):
     doi = Required(str, index=True)
     uri = Required(str)
     summaries = Set("Summary", reverse="article_id")
+    abbreviations = Set("Abbreviation", reverse="article_id")
 
 
 class Summary(db.Entity):
@@ -39,6 +40,12 @@ class Summary(db.Entity):
     simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
     named_entities = Set("NamedEntity", reverse="summary_id")
 
+class Abbreviation(db.Entity):
+    _table_ = ("SciGraphPipeline", "abbreviations")
+    id = PrimaryKey(int, auto=True)
+    article_id = Required(Article, reverse="abbreviations")
+    abbreviation = Required(str)
+    meaning = Required(str)
 
 class SimpleConclusions(db.Entity):
     _table_ = ("SciGraphPipeline", "simple_conclusions")
@@ -127,14 +134,14 @@ class Pony:
     @db_session()
     def _add_record(self, data, table, periodic_commit=50):
         last_record = type("placeholder", (), {"id": 0})
-        try:
+        #try:
+        if True:
             for e, elem in enumerate(data):
-                print(elem)
                 last_record = table(**elem)
                 if not e % periodic_commit:
                     logging.info("Processing %s: %s" % (e, last_record))
                     self._commit(table, last_record)
-        finally:
+        #finally:
             self._commit(table, last_record)
         return last_record.id
 
@@ -159,6 +166,9 @@ class Pony:
             yield from self._get_unprocessed_records(table, downstream)
 
     def _get_unprocessed_records(self, table, downstream):
+        if not isinstance(downstream, dict):
+            downstream = {"downstream": downstream}
+        downstream = list(downstream.values())[0] # TODO fix to check for all downstream tables
         elems = select(
             c for c in table if not getattr(c, downstream._table_[-1]).id
         )  # .is_empty()

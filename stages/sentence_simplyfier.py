@@ -1,6 +1,7 @@
 from datetime import datetime
 import itertools
 import sys
+import logging
 
 sys.path.append("stages/spacy_pipeline/muss")
 
@@ -46,8 +47,9 @@ class SentenceSimplyfier(PipelineStep):
     def _run(self, data, batch_size=1000):
 
         for batch in batched(data, batch_size):
+            
             self._total_processed += batch_size
-            if self._total_processed >= 8000:
+            if self._total_processed >= 8 * batch_size:
                 self.model = Simplifier(self.model_name)
                 self._total_processed = batch_size
             b1, b2 = itertools.tee(batch, 2)
