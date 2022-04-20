@@ -4,10 +4,12 @@ from pony import orm
 
 logger = Logger()
 
+
 def load_config(config_file="../config.json"):
-    with open(config_file, 'r') as f:
+    with open(config_file, "r") as f:
         conf = json.load(f)
     return conf
+
 
 def check(config_file="../config.json"):
     passed = True
@@ -24,4 +26,3 @@ def check(config_file="../config.json"):
     except KeyError:
         logger.error("Config for database not defined.")
         return False
-    

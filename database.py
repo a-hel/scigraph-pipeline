@@ -2,6 +2,7 @@ import csv
 import json
 import logging
 from datetime import date, datetime
+from typing import List, Dict
 from pony.orm import (
     Database,
     Required,
@@ -40,12 +41,14 @@ class Summary(db.Entity):
     simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
     named_entities = Set("NamedEntity", reverse="summary_id")
 
+
 class Abbreviation(db.Entity):
     _table_ = ("SciGraphPipeline", "abbreviations")
     id = PrimaryKey(int, auto=True)
     article_id = Required(Article, reverse="abbreviations")
     abbreviation = Required(str)
     meaning = Required(str)
+
 
 class SimpleConclusions(db.Entity):
     _table_ = ("SciGraphPipeline", "simple_conclusions")
@@ -93,6 +96,27 @@ class Log(db.Entity):
     timestamp = Required(datetime)
 
 
+class RecordPointer:
+    def __init__(self, db, refs: Dict[str, int]):
+        # self._validate(refs)
+        self.refs = {getattr(db, tbl): idx for tbl, idx in refs.items()}
+        self.db = db
+        self.tables = [".".join(table._table_) for table in self.refs]
+
+    def _validate(self, refs):
+        dbs = {id(ref._database_) for ref in refs}
+        if len(dbs) > 1:
+            raise AttributeError("All tables must come from the same database.")
+
+    @db_session
+    def get(self):
+        data = {}
+        for table, id in self.refs.items():
+            elem = table[id]
+            data[".".join(table._table_)] = elem
+        return data
+
+
 class Pony:
     def __init__(
         self,
@@ -134,14 +158,14 @@ class Pony:
     @db_session()
     def _add_record(self, data, table, periodic_commit=50):
         last_record = type("placeholder", (), {"id": 0})
-        #try:
+        # try:
         if True:
             for e, elem in enumerate(data):
                 last_record = table(**elem)
                 if not e % periodic_commit:
                     logging.info("Processing %s: %s" % (e, last_record))
                     self._commit(table, last_record)
-        #finally:
+            # finally:
             self._commit(table, last_record)
         return last_record.id
 
@@ -168,7 +192,9 @@ class Pony:
     def _get_unprocessed_records(self, table, downstream):
         if not isinstance(downstream, dict):
             downstream = {"downstream": downstream}
-        downstream = list(downstream.values())[0] # TODO fix to check for all downstream tables
+        downstream = list(downstream.values())[
+            0
+        ]  # TODO fix to check for all downstream tables
         elems = select(
             c for c in table if not getattr(c, downstream._table_[-1]).id
         )  # .is_empty()

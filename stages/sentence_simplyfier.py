@@ -47,7 +47,7 @@ class SentenceSimplyfier(PipelineStep):
     def _run(self, data, batch_size=1000):
 
         for batch in batched(data, batch_size):
-            
+
             self._total_processed += batch_size
             if self._total_processed >= 8 * batch_size:
                 self.model = Simplifier(self.model_name)
