@@ -128,15 +128,19 @@ class Pony:
         database="SciGraph_staging",
     ):
         self.db = db
-        self.db.bind(
-            provider="postgres",
-            user=user,
-            password=password,
-            host=host,
-            database=database,
-        )
-        self.db.generate_mapping(create_tables=True)
+        if self.db.provider is None:
+            self.db.bind(
+                provider="postgres",
+                user=user,
+                password=password,
+                host=host,
+                database=database,
+            )
+            self.db.generate_mapping(create_tables=True)
+        #else:
+        #    logger.debug('Using previously bound database')
         self.articles = Article
+        self.abbreviations = Abbreviation
         self.summaries = Summary
         self.simple_conclusions = SimpleConclusions
         self.named_entities = NamedEntity
