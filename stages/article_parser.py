@@ -112,6 +112,29 @@ def parse_from_folder(folder, lookup, suffix="nxml"):
             continue
         yield article
 
+def load_article(data):
+    intro_synonyms = ["introduction", "background"]
+    conc_synonyms = ["conclusion", "conclusions", "summary", "discussion"]
+    article_elements = {
+        "Abstract": extract_abstract,
+        "Introduction": lambda root: extract_section(root, intro_synonyms),
+        "Conclusion": lambda root: extract_section(root, conc_synonyms),
+    }
+    article_data = {"doi": data.uri, "origin": data.uri}
+    with open(data.uri, "rb") as f:
+        plaintext = f.read()
+    try:
+        article = parse_article(plaintext, article_elements)
+        article.update(article_data)
+        error = None
+    except ValueError as e:
+        article = article_data
+        error = "%s - %s" % (data.uri, str(e))
+    except TypeError as e:
+        article = None
+        error = "%s - %s" % (data.uri, str(e))
+    return article, error
+
 
 def parse_articles(folder):
     # lookup = id_convert(os.path.join(os.getenv('ASSET_DIR'), "PMC-ids.csv"))

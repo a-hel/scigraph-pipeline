@@ -186,7 +186,10 @@ class Pony:
     def add_record(self, data, table, periodic_commit=50):
         return self._add_record(data, table, periodic_commit)
 
-    # @db_session
+    @db_session
+    def get_by_id(self, table, id):
+        return table[id]
+        
     def get_records(self, table, run_all=False, downstream=None):
         if run_all:
             yield from self._get_record(table)

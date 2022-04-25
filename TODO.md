@@ -3,7 +3,7 @@
 ## Engineering
 
 [x] Article loading and join with doi
-[ ] Convert pipeline step to airflow task
+[x] Convert pipeline step to airflow task
 [ ] Extract abbreviations
 [ ] Combine abbreviations with summaries
 [ ] Check https://allenai.github.io/scispacy/ for faster NER
