@@ -13,6 +13,7 @@ from pony.orm import (
     db_session,
     select,
 )
+from pony.orm.core import EntityMeta
 
 db = Database()
 
@@ -46,6 +47,7 @@ class Abbreviation(db.Entity):
     _table_ = ("SciGraphPipeline", "abbreviations")
     id = PrimaryKey(int, auto=True)
     article_id = Required(Article, reverse="abbreviations")
+    doi = Required(str)
     abbreviation = Required(str)
     meaning = Required(str)
 
@@ -137,7 +139,7 @@ class Pony:
                 database=database,
             )
             self.db.generate_mapping(create_tables=True)
-        #else:
+        # else:
         #    logger.debug('Using previously bound database')
         self.articles = Article
         self.abbreviations = Abbreviation
@@ -148,6 +150,9 @@ class Pony:
         self.edges = Edge
         self.logs = Log
         logging.debug("Database %s initialized." % (database))
+
+    def __del__(self):
+        self.db.disconnect()
 
     def _commit(self, table, last_record):
         commit()
@@ -173,6 +178,7 @@ class Pony:
             self._commit(table, last_record)
         return last_record.id
 
+    #@db_session
     def _get_record(self, table):
         elems = select(c for c in table)
         yield from elems
@@ -189,8 +195,12 @@ class Pony:
     @db_session
     def get_by_id(self, table, id):
         return table[id]
-        
+
     def get_records(self, table, run_all=False, downstream=None):
+        if isinstance(table, str):
+            table = getattr(self, table)
+        if not isinstance(table, EntityMeta):
+            raise(ValueError, "No table with with that name")
         if run_all:
             yield from self._get_record(table)
         else:

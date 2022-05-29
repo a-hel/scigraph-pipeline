@@ -1,8 +1,9 @@
-import json
+
 import logging
 
 
 import os
+import re
 import json
 import time
 import more_itertools
@@ -116,10 +117,28 @@ def _parse_locally(conclusions, batch_size=20):
             yield from result
     loop.close()
 
+def _substitute_word(sentence, abbreviation):
+    substituted = re.sub(f"\\b{abbreviation.abbreviation}\\b", abbreviation.meaning, sentence.summary)
+    return substituted
 
+
+def _substitute_abbreviation(sentence):
+    abbreviations = sentence.article_id.abbreviations
+    for abbreviation in abbreviations:
+        sentence = _substitute_word(sentence, abbreviation)
+    return sentence
+
+def substitute_abbreviations(sentences):
+    for sentence in sentences:
+        yield _substitute_abbreviation(sentence)
+
+from pony.orm import db_session
+@db_session
 def recognize_named_entities(sentences, parser="local"):
     """Extract MeSH terms from text."""
     parsers = {"local": _parse_locally, "web": _parse_online}
     parser = parsers[parser]
+
+    sentences = substitute_abbreviations(sentences)
 
     yield from parser(sentences)

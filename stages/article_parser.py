@@ -1,7 +1,11 @@
 import os
 import csv
+from typing import Type
 from lxml import etree
+
 import logging
+
+from stages.utils import TarFileReader
 
 
 def _normalize_title(context, title):
@@ -112,6 +116,7 @@ def parse_from_folder(folder, lookup, suffix="nxml"):
             continue
         yield article
 
+
 def load_article(data):
     intro_synonyms = ["introduction", "background"]
     conc_synonyms = ["conclusion", "conclusions", "summary", "discussion"]
@@ -120,20 +125,28 @@ def load_article(data):
         "Introduction": lambda root: extract_section(root, intro_synonyms),
         "Conclusion": lambda root: extract_section(root, conc_synonyms),
     }
-    article_data = {"doi": data.uri, "origin": data.uri}
-    with open(data.uri, "rb") as f:
-        plaintext = f.read()
-    try:
-        article = parse_article(plaintext, article_elements)
-        article.update(article_data)
-        error = None
-    except ValueError as e:
-        article = article_data
-        error = "%s - %s" % (data.uri, str(e))
-    except TypeError as e:
-        article = None
-        error = "%s - %s" % (data.uri, str(e))
-    return article, error
+    lookup = id_convert(
+        "/Users/andreashelfenstein/Documents/Work/redcurrant/sciserve.nosync/data/raw/PMC-ids.csv"
+    )
+    tarfilereader = TarFileReader( # do 4 again
+        #archive="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC008xxxxxx.baseline.2022-03-04.tar.gz",
+        #lookup="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC008xxxxxx.baseline.2022-03-04.filelist.csv",
+        archive="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC004xxxxxx.baseline.2022-03-04.tar.gz",
+        lookup="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC004xxxxxx.baseline.2022-03-04.filelist.csv",
+    )
+    for e, (fname, plaintext) in enumerate(tarfilereader):
+        
+        pmc = fname.rsplit("/", 1)[-1].split(".")[0]
+        doi = lookup.get(pmc, pmc)
+        full_path = fname
+        article_data = {"doi": doi or pmc, "origin": full_path}
+        try:
+            article = parse_article(plaintext, article_elements)
+            article.update(article_data)
+            error = None
+        except (ValueError, TypeError, etree.XMLSyntaxError) as e:
+            continue
+        yield article
 
 
 def parse_articles(folder):
