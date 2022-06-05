@@ -153,7 +153,7 @@ class Pony:
         self.logs = Log
         logging.debug("Database %s initialized." % (database))
 
-    #def __del__(self):
+    # def __del__(self):
     #    self.db.disconnect()
 
     def _commit(self, table, last_record):
@@ -180,7 +180,7 @@ class Pony:
             self._commit(table, last_record)
         return last_record.id
 
-    #@db_session
+    # @db_session
     def _get_record(self, table, prefetch=[]):
         elems = select(c for c in table)
         yield from elems
@@ -194,7 +194,7 @@ class Pony:
     def add_record(self, data, table, periodic_commit=50):
         return self._add_record(data, table, periodic_commit)
 
-    #@db_session
+    # @db_session
     def get_by_id(self, table, id):
         return table[id]
 
@@ -202,7 +202,7 @@ class Pony:
         if isinstance(table, str):
             table = getattr(self, table)
         if not isinstance(table, EntityMeta):
-            raise(ValueError, "No table with with that name")
+            raise (ValueError, "No table with with that name")
         if run_all:
             yield from self._get_record(table, downstream)
         else:

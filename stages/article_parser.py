@@ -128,14 +128,14 @@ def load_article(data):
     lookup = id_convert(
         "/Users/andreashelfenstein/Documents/Work/redcurrant/sciserve.nosync/data/raw/PMC-ids.csv"
     )
-    tarfilereader = TarFileReader( # do 4 again
-        #archive="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC008xxxxxx.baseline.2022-03-04.tar.gz",
-        #lookup="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC008xxxxxx.baseline.2022-03-04.filelist.csv",
+    tarfilereader = TarFileReader(  # do 4 again
+        # archive="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC008xxxxxx.baseline.2022-03-04.tar.gz",
+        # lookup="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC008xxxxxx.baseline.2022-03-04.filelist.csv",
         archive="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC004xxxxxx.baseline.2022-03-04.tar.gz",
         lookup="/Users/andreashelfenstein/Library/Mobile Documents/com~apple~CloudDocs/Downloads/data/oa_comm_xml.PMC004xxxxxx.baseline.2022-03-04.filelist.csv",
     )
     for e, (fname, plaintext) in enumerate(tarfilereader):
-        
+
         pmc = fname.rsplit("/", 1)[-1].split(".")[0]
         doi = lookup.get(pmc, pmc)
         full_path = fname

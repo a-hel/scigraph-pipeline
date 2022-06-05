@@ -1,4 +1,3 @@
-
 import logging
 
 
@@ -13,6 +12,7 @@ from itertools import groupby
 import requests
 
 from pony.orm import db_session
+
 
 def _parse_online(text):
     time.sleep(0.2)
@@ -120,27 +120,35 @@ def _parse_locally(conclusions, batch_size=20):
             yield from result
     loop.close()
 
+
 def _substitute_word(sentence, abbreviation):
     try:
-        substituted = re.sub(r"\b%s\b" % re.escape(abbreviation.abbreviation), abbreviation.meaning, sentence)
+        substituted = re.sub(
+            r"\b%s\b" % re.escape(abbreviation.abbreviation),
+            abbreviation.meaning,
+            sentence,
+        )
     except re.error as e:
         return sentence
     return substituted
 
+
 def substitute(sentence, abbrevs):
-    for abbreviation in abbrevs:# sentence.article_id.abbreviations:
+    for abbreviation in abbrevs:  # sentence.article_id.abbreviations:
         sentence = _substitute_word(sentence, abbreviation)
     return sentence
 
 
 def substitute_abbreviations(abbreviations):
-    for sentence, abbrevs in groupby(abbreviations, key=lambda x: x.summary_id.conclusion):
-            abbrevs = list(abbrevs)
-            article_id = abbrevs[0].article_id.id
-            if article_id == 1398855:
-                continue
-            substituted_sentence = substitute(sentence, abbrevs)
-            yield {"id": article_id, "conclusion": substituted_sentence}
+    for sentence, abbrevs in groupby(
+        abbreviations, key=lambda x: x.summary_id.conclusion
+    ):
+        abbrevs = list(abbrevs)
+        article_id = abbrevs[0].article_id.id
+        if article_id == 1398855:
+            continue
+        substituted_sentence = substitute(sentence, abbrevs)
+        yield {"id": article_id, "conclusion": substituted_sentence}
 
 
 @db_session

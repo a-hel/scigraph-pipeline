@@ -9,7 +9,7 @@ def find_abbreviations(articles):
             doc_text=introduction, first_definition=True
         )
         for abbr, meaning in pairs.items():
-            
+
             yield {
                 "article_id": int(article.get("id", 0)),
                 "doi": article["doi"],

@@ -39,9 +39,14 @@ class PipelineStep:
 
         def run_full():
             if self.upstream:
-                all_data = self.db.get_records(table=self.upstream, run_all=True, downstream=self.downstream, prefetch=self.prefetch)
+                all_data = self.db.get_records(
+                    table=self.upstream,
+                    run_all=True,
+                    downstream=self.downstream,
+                    prefetch=self.prefetch,
+                )
             yield from run(all_data)
-            #for data in all_data:
+            # for data in all_data:
             #    yield from run(data)
 
         def run_one(data):
