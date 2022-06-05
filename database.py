@@ -41,13 +41,15 @@ class Summary(db.Entity):
     edges = Set("Edge", reverse="summary_id")
     simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
     named_entities = Set("NamedEntity", reverse="summary_id")
+    abbreviations = Set("Abbreviation", reverse="summary_id")
 
 
 class Abbreviation(db.Entity):
     _table_ = ("SciGraphPipeline", "abbreviations")
     id = PrimaryKey(int, auto=True)
-    article_id = Required(Article, reverse="abbreviations")
-    doi = Required(str)
+    article_id = Optional(Article, reverse="abbreviations")
+    summary_id = Optional(Summary, reverse="abbreviations")
+    doi = Optional(str)
     abbreviation = Required(str)
     meaning = Required(str)
 
@@ -151,8 +153,8 @@ class Pony:
         self.logs = Log
         logging.debug("Database %s initialized." % (database))
 
-    def __del__(self):
-        self.db.disconnect()
+    #def __del__(self):
+    #    self.db.disconnect()
 
     def _commit(self, table, last_record):
         commit()
@@ -179,7 +181,7 @@ class Pony:
         return last_record.id
 
     #@db_session
-    def _get_record(self, table):
+    def _get_record(self, table, prefetch=[]):
         elems = select(c for c in table)
         yield from elems
 
@@ -192,19 +194,19 @@ class Pony:
     def add_record(self, data, table, periodic_commit=50):
         return self._add_record(data, table, periodic_commit)
 
-    @db_session
+    #@db_session
     def get_by_id(self, table, id):
         return table[id]
 
-    def get_records(self, table, run_all=False, downstream=None):
+    def get_records(self, table, run_all=False, downstream=None, prefetch=[]):
         if isinstance(table, str):
             table = getattr(self, table)
         if not isinstance(table, EntityMeta):
             raise(ValueError, "No table with with that name")
         if run_all:
-            yield from self._get_record(table)
+            yield from self._get_record(table, downstream)
         else:
-            yield from self._get_unprocessed_records(table, downstream)
+            yield from self._get_unprocessed_records(table, prefetch)
 
     def _get_unprocessed_records(self, table, downstream):
         if not isinstance(downstream, dict):

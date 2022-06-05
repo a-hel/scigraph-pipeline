@@ -8,9 +8,11 @@ import json
 import time
 import more_itertools
 import asyncio
+from itertools import groupby
 
 import requests
 
+from pony.orm import db_session
 
 def _parse_online(text):
     time.sleep(0.2)
@@ -109,6 +111,7 @@ def _parse_locally(conclusions, batch_size=20):
     for batch in more_itertools.ichunked(conclusions, batch_size):
 
         results = loop.run_until_complete(_collect_output(batch))
+        print(results)
         for result in results:
             if not result:
                 continue
@@ -118,27 +121,32 @@ def _parse_locally(conclusions, batch_size=20):
     loop.close()
 
 def _substitute_word(sentence, abbreviation):
-    substituted = re.sub(f"\\b{abbreviation.abbreviation}\\b", abbreviation.meaning, sentence.summary)
+    try:
+        substituted = re.sub(r"\b%s\b" % re.escape(abbreviation.abbreviation), abbreviation.meaning, sentence)
+    except re.error as e:
+        return sentence
     return substituted
 
-
-def _substitute_abbreviation(sentence):
-    abbreviations = sentence.article_id.abbreviations
-    for abbreviation in abbreviations:
+def substitute(sentence, abbrevs):
+    for abbreviation in abbrevs:# sentence.article_id.abbreviations:
         sentence = _substitute_word(sentence, abbreviation)
     return sentence
 
-def substitute_abbreviations(sentences):
-    for sentence in sentences:
-        yield _substitute_abbreviation(sentence)
 
-from pony.orm import db_session
+def substitute_abbreviations(abbreviations):
+    for sentence, abbrevs in groupby(abbreviations, key=lambda x: x.summary_id.conclusion):
+            abbrevs = list(abbrevs)
+            article_id = abbrevs[0].article_id.id
+            if article_id == 1398855:
+                continue
+            substituted_sentence = substitute(sentence, abbrevs)
+            yield {"id": article_id, "conclusion": substituted_sentence}
+
+
 @db_session
-def recognize_named_entities(sentences, parser="local"):
+def recognize_named_entities(abbreviations, parser="local"):
     """Extract MeSH terms from text."""
     parsers = {"local": _parse_locally, "web": _parse_online}
     parser = parsers[parser]
-
-    sentences = substitute_abbreviations(sentences)
-
+    sentences = substitute_abbreviations(abbreviations)
     yield from parser(sentences)

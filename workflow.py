@@ -1,4 +1,5 @@
 from database import RecordPointer, get_database, Pony
+from dotenv import load_dotenv
 
 from flytekit import task, workflow
 
@@ -9,6 +10,7 @@ from typing import List, Dict
 
 from stages.pipeline_step import PipelineStep
 
+load_dotenv()
 
 @task
 def find_abbreviation_task(articles: List[Dict[str, str]]) -> List[Dict]:
@@ -41,7 +43,8 @@ def temptask(article_id: int) -> None:
 @task
 def ner_task() -> None:
     db = get_database()
-    af = PipelineStep(fn=recognize_named_entities, db=db, upstream="summaries", downstream="named_entities")
+    af = PipelineStep(fn=recognize_named_entities, db=db, upstream="abbreviations", downstream="named_entities",
+    )
     for elem in af.run_all(data=1, write=False):
         print(elem)
         break
