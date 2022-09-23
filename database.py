@@ -39,10 +39,20 @@ class Summary(db.Entity):
 
     nodes = Set("Node", reverse="summary_id")
     edges = Set("Edge", reverse="summary_id")
+    conclusions = Set("Conclusion", reverse="summary_id", lazy=False)
     simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
-    named_entities = Set("NamedEntity", reverse="summary_id")
+    simple_substituted_conclusions = Set("SimpleSubstitutedConclusions", reverse="summary_id", lazy=False)
+#    named_entities = Set("NamedEntity", reverse="summary_id")
     abbreviations = Set("Abbreviation", reverse="summary_id")
 
+class Conclusion(db.Entity):
+    _table_ = ("SciGraphPipeline", "conclusions")
+    id = PrimaryKey(int, auto=True)
+    summary_id = Required(Summary, reverse="conclusions")
+    conclusion = Required(str)
+    date_added = Required(datetime)
+    simple_conclusions = Set("SimpleConclusions", reverse="conclusion_id", lazy=False)
+    
 
 class Abbreviation(db.Entity):
     _table_ = ("SciGraphPipeline", "abbreviations")
@@ -57,17 +67,28 @@ class Abbreviation(db.Entity):
 class SimpleConclusions(db.Entity):
     _table_ = ("SciGraphPipeline", "simple_conclusions")
     id = PrimaryKey(int, auto=True)
+    conclusion_id = Required(Conclusion, reverse="simple_conclusions")
     summary_id = Required(Summary, reverse="simple_conclusions")
     conclusion = Required(str, lazy=False)
     date_added = Required(datetime)
     muss_version = Required(str)
     error = Optional(str)
+    simple_substituted_conclusions = Set("SimpleSubstitutedConclusions", reverse="simple_conclusion_id")
 
+class SimpleSubstitutedConclusions(db.Entity):
+    _table_ = ("SciGraphPipeline", "simple_substituted_conclusions")
+    id = PrimaryKey(int, auto=True)
+    simple_conclusion_id = Required(SimpleConclusions, reverse="simple_substituted_conclusions")
+    summary_id = Required(Summary, reverse="simple_substituted_conclusions")
+    conclusion = Required(str)
+    date_added = Required(datetime)
+    error = Optional(str)
+    named_entities = Set("NamedEntity", reverse="ss_conclusion_id")
 
 class NamedEntity(db.Entity):
     _table_ = ("SciGraphPipeline", "named_entities")
     id = PrimaryKey(int, auto=True)
-    summary_id = Required(Summary, reverse="named_entities")
+    ss_conclusion_id = Required(SimpleSubstitutedConclusions, reverse="named_entities")
     matched_term = Required(str)
     preferred_term = Required(str)
     cui = Required(str)
@@ -100,25 +121,7 @@ class Log(db.Entity):
     timestamp = Required(datetime)
 
 
-class RecordPointer:
-    def __init__(self, db, refs: Dict[str, int]):
-        # self._validate(refs)
-        self.refs = {getattr(db, tbl): idx for tbl, idx in refs.items()}
-        self.db = db
-        self.tables = [".".join(table._table_) for table in self.refs]
 
-    def _validate(self, refs):
-        dbs = {id(ref._database_) for ref in refs}
-        if len(dbs) > 1:
-            raise AttributeError("All tables must come from the same database.")
-
-    @db_session
-    def get(self):
-        data = {}
-        for table, id in self.refs.items():
-            elem = table[id]
-            data[".".join(table._table_)] = elem
-        return data
 
 
 class Pony:
@@ -138,6 +141,7 @@ class Pony:
                 user=user,
                 password=password,
                 host=host,
+                port=port,
                 database=database,
             )
             self.db.generate_mapping(create_tables=True)
@@ -146,7 +150,9 @@ class Pony:
         self.articles = Article
         self.abbreviations = Abbreviation
         self.summaries = Summary
+        self.conclusions = Conclusion
         self.simple_conclusions = SimpleConclusions
+        self.simple_substituted_conclusions = SimpleSubstitutedConclusions
         self.named_entities = NamedEntity
         self.nodes = Node
         self.edges = Edge
@@ -166,10 +172,9 @@ class Pony:
         self.logs(**checkpoint)
         commit()
 
-    @db_session()
+    #@db_session
     def _add_record(self, data, table, periodic_commit=50):
         last_record = type("placeholder", (), {"id": 0})
-        # try:
         if True:
             for e, elem in enumerate(data):
                 last_record = table(**elem)
@@ -178,11 +183,15 @@ class Pony:
                     self._commit(table, last_record)
             # finally:
             self._commit(table, last_record)
+        print("Finished cycle")
         return last_record.id
 
     # @db_session
-    def _get_record(self, table, prefetch=[]):
+    def _get_record(self, table, prefetch=[], order_by=None, asc=True):
         elems = select(c for c in table)
+        if order_by is not None:
+            column = getattr(table, order_by)
+            elems = elems.order_by(column)
         yield from elems
 
     def get_summaries(self):
@@ -192,19 +201,27 @@ class Pony:
         yield from elems
 
     def add_record(self, data, table, periodic_commit=50):
-        return self._add_record(data, table, periodic_commit)
+        if isinstance(table, (str, EntityMeta)):
+            return self._add_record(data, table, periodic_commit)
+        elif isinstance(table, list):
+            for elem in data:
+                for tbl in table:
+                    filtered_records = elem[tbl._table_[-1]]
+                    last_id = self._add_record(filtered_records, tbl, periodic_commit)
+            return last_id
+        raise TypeError("Expected table, name, or dict  got %s" % type(table))
 
     # @db_session
     def get_by_id(self, table, id):
         return table[id]
 
-    def get_records(self, table, run_all=False, downstream=None, prefetch=[]):
+    def get_records(self, table, run_all=False, downstream=None, prefetch=[], order_by=None):
         if isinstance(table, str):
             table = getattr(self, table)
         if not isinstance(table, EntityMeta):
             raise (ValueError, "No table with with that name")
         if run_all:
-            yield from self._get_record(table, downstream)
+            yield from self._get_record(table, downstream, order_by=order_by)
         else:
             yield from self._get_unprocessed_records(table, prefetch)
 
@@ -237,8 +254,9 @@ def get_database(config="config.json"):
         cfg = json.load(f)
     postgres_cfg = cfg.get("postgres")
     postgres_cfg = {
-        key: postgres_cfg.get(key) for key in ["host", "user", "port", "password"]
+        key: postgres_cfg.get(key) for key in ["host", "user", "port", "password", "database"]
     }
+    print(f"Loading database with config: \n {postgres_cfg['host']}:{postgres_cfg['port']}/{postgres_cfg['database']}")
     pony = Pony(db, **postgres_cfg)
     return pony
 

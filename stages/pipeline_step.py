@@ -1,5 +1,6 @@
 from typing import Callable, Generator, Optional, Dict, List
 from contextlib import contextmanager
+from pony.orm import db_session #TODO: factor out somehow
 
 
 class PipelineStep:
@@ -22,10 +23,14 @@ class PipelineStep:
             upstream = getattr(db, upstream)
             # if not isinstance(upstream, db.db.Entity):
             #    raise AttributeError("Database has no table '%s'" % upstream)
+        elif isinstance(upstream, list):
+            upstream = [getattr(db, us) if isinstance(us, str) else us for us in upstream]
         if isinstance(downstream, str):
             downstream = getattr(db, downstream)
             # if not isinstance(downstream, db.db.Entity):
             #    raise AttributeError("Database has no table '%s'" % downstream)
+        elif isinstance(downstream, list):
+            downstream = [getattr(db, ds) if isinstance(ds, str) else ds for ds in downstream]
         self.upstream = upstream
         self.downstream = downstream
         self.prefetch = prefetch
@@ -36,14 +41,15 @@ class PipelineStep:
             raise AttributeError(
                 "You must specify a downstream table if you want to write your results."
             )
-
-        def run_full():
+        
+        def run_full(order_by=None):
             if self.upstream:
                 all_data = self.db.get_records(
                     table=self.upstream,
                     run_all=True,
                     downstream=self.downstream,
                     prefetch=self.prefetch,
+                    order_by=order_by
                 )
             yield from run(all_data)
             # for data in all_data:
@@ -54,6 +60,7 @@ class PipelineStep:
                 data = self.db.get_by_id(table=self.upstream, id=data)
             yield from run(data)
 
+        @db_session
         def run(data):
             result = self.fn(data)
             if write:
@@ -81,9 +88,9 @@ class PipelineStep:
                 continue
             yield res
 
-    def run_all(self, data: Generator[Dict, None, None], write: bool = True):
+    def run_all(self, data: Generator[Dict, None, None], write: bool = True, order_by: str=None):
         with self.runner(run_all=True, write=write) as run:
-            result = run()
+            result = run(order_by=order_by)
         return result
 
     def as_func(self, data, write):
