@@ -99,8 +99,6 @@ def summarize_article(articles, checkpoint_file=None):
         yield data
 
 
-
-
 def summarize_articles(checkpoint_file=None):
     def func(data):
         yield from summarize_article(data, checkpoint_file)

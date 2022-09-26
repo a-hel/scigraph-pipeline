@@ -1,21 +1,23 @@
-import csv
+"""Database interface"""
+
 import json
 import logging
-from datetime import date, datetime
+from datetime import datetime
 from typing import List, Dict
 from pony.orm import (
-    Database,
+    Database as PonyDatabase,
     Required,
     Optional,
     commit,
     PrimaryKey,
     Set,
-    db_session,
     select,
 )
 from pony.orm.core import EntityMeta
 
-db = Database()
+from ..utils.logging import logger
+
+db = PonyDatabase()
 
 
 class Article(db.Entity):
@@ -41,9 +43,12 @@ class Summary(db.Entity):
     edges = Set("Edge", reverse="summary_id")
     conclusions = Set("Conclusion", reverse="summary_id", lazy=False)
     simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
-    simple_substituted_conclusions = Set("SimpleSubstitutedConclusions", reverse="summary_id", lazy=False)
-#    named_entities = Set("NamedEntity", reverse="summary_id")
+    simple_substituted_conclusions = Set(
+        "SimpleSubstitutedConclusions", reverse="summary_id", lazy=False
+    )
+    #    named_entities = Set("NamedEntity", reverse="summary_id")
     abbreviations = Set("Abbreviation", reverse="summary_id")
+
 
 class Conclusion(db.Entity):
     _table_ = ("SciGraphPipeline", "conclusions")
@@ -52,7 +57,7 @@ class Conclusion(db.Entity):
     conclusion = Required(str)
     date_added = Required(datetime)
     simple_conclusions = Set("SimpleConclusions", reverse="conclusion_id", lazy=False)
-    
+
 
 class Abbreviation(db.Entity):
     _table_ = ("SciGraphPipeline", "abbreviations")
@@ -73,17 +78,23 @@ class SimpleConclusions(db.Entity):
     date_added = Required(datetime)
     muss_version = Required(str)
     error = Optional(str)
-    simple_substituted_conclusions = Set("SimpleSubstitutedConclusions", reverse="simple_conclusion_id")
+    simple_substituted_conclusions = Set(
+        "SimpleSubstitutedConclusions", reverse="simple_conclusion_id"
+    )
+
 
 class SimpleSubstitutedConclusions(db.Entity):
     _table_ = ("SciGraphPipeline", "simple_substituted_conclusions")
     id = PrimaryKey(int, auto=True)
-    simple_conclusion_id = Required(SimpleConclusions, reverse="simple_substituted_conclusions")
+    simple_conclusion_id = Required(
+        SimpleConclusions, reverse="simple_substituted_conclusions"
+    )
     summary_id = Required(Summary, reverse="simple_substituted_conclusions")
     conclusion = Required(str)
     date_added = Required(datetime)
     error = Optional(str)
     named_entities = Set("NamedEntity", reverse="ss_conclusion_id")
+
 
 class NamedEntity(db.Entity):
     _table_ = ("SciGraphPipeline", "named_entities")
@@ -121,10 +132,7 @@ class Log(db.Entity):
     timestamp = Required(datetime)
 
 
-
-
-
-class Pony:
+class Database:
     def __init__(
         self,
         db,
@@ -145,8 +153,8 @@ class Pony:
                 database=database,
             )
             self.db.generate_mapping(create_tables=True)
-        # else:
-        #    logger.debug('Using previously bound database')
+        else:
+            logger.debug("Using previously bound database")
         self.articles = Article
         self.abbreviations = Abbreviation
         self.summaries = Summary
@@ -157,7 +165,7 @@ class Pony:
         self.nodes = Node
         self.edges = Edge
         self.logs = Log
-        logging.debug("Database %s initialized." % (database))
+        logger.debug(f"Connected to database:\t{user}@{host}:{port}/{database}")
 
     # def __del__(self):
     #    self.db.disconnect()
@@ -172,7 +180,7 @@ class Pony:
         self.logs(**checkpoint)
         commit()
 
-    #@db_session
+    # @db_session
     def _add_record(self, data, table, periodic_commit=50):
         last_record = type("placeholder", (), {"id": 0})
         if True:
@@ -185,14 +193,6 @@ class Pony:
             self._commit(table, last_record)
         print("Finished cycle")
         return last_record.id
-
-    # @db_session
-    def _get_record(self, table, prefetch=[], order_by=None, asc=True):
-        elems = select(c for c in table)
-        if order_by is not None:
-            column = getattr(table, order_by)
-            elems = elems.order_by(column)
-        yield from elems
 
     def get_summaries(self):
         elems = select(c for c in self.summaries if c.named_entities.id)
@@ -211,30 +211,46 @@ class Pony:
             return last_id
         raise TypeError("Expected table, name, or dict  got %s" % type(table))
 
-    # @db_session
     def get_by_id(self, table, id):
         return table[id]
 
-    def get_records(self, table, run_all=False, downstream=None, prefetch=[], order_by=None):
+    def get_records(self, table, mode="all", downstream=None, order_by=None):
         if isinstance(table, str):
             table = getattr(self, table)
         if not isinstance(table, EntityMeta):
             raise (ValueError, "No table with with that name")
-        if run_all:
-            yield from self._get_record(table, downstream, order_by=order_by)
-        else:
-            yield from self._get_unprocessed_records(table, prefetch)
+        select_functions = {
+            "all": self._get_all_records,
+            "unprocessed": self._get_unprocessed_records,
+            "newer": self._get_newer_records,
+        }
+        try:
+            select_function = select_functions[mode]
+        except KeyError as e:
+            raise KeyError(
+                f"Unknown mode '{mode}'. Allowed values are {','.join(select_functions.keys())}"
+            )
+        elems = select_function(table, downstream)
+        if order_by is not None:
+            column = getattr(table, order_by)
+            elems = elems.order_by(column)
+        yield from elems
+
+    def _get_all_records(self, table, downstream):
+        elems = select(c for c in table)
+        return elems
 
     def _get_unprocessed_records(self, table, downstream):
-        if not isinstance(downstream, dict):
-            downstream = {"downstream": downstream}
-        downstream = list(downstream.values())[
-            0
-        ]  # TODO fix to check for all downstream tables
+        elems = select(c for c in table if not getattr(c, downstream._table_[-1]).id)
+        return elems
+
+    def _get_newer_records(self, table, downstream):
         elems = select(
-            c for c in table if not getattr(c, downstream._table_[-1]).id
-        )  # .is_empty()
-        yield from elems
+            c
+            for c in table
+            if c.date_added > min(getattr(c, downstream._table_[-1]).date_added)
+        )
+        return elems
 
     def add_articles(self, data):
         last_id = self._add_record(data, self.articles, periodic_commit=1000)
@@ -248,36 +264,13 @@ class Pony:
         last_id = self._add_record(data, self.named_entities, periodic_commit=100)
         return {"named_entity_id": last_id}
 
-
-def get_database(config="config.json"):
-    with open(config, "r") as f:
-        cfg = json.load(f)
-    postgres_cfg = cfg.get("postgres")
-    postgres_cfg = {
-        key: postgres_cfg.get(key) for key in ["host", "user", "port", "password", "database"]
-    }
-    print(f"Loading database with config: \n {postgres_cfg['host']}:{postgres_cfg['port']}/{postgres_cfg['database']}")
-    pony = Pony(db, **postgres_cfg)
-    return pony
-
-
-def _read_file(fname):
-    with open(fname) as csvfile:
-        reader = csv.reader(csvfile, delimiter=",", quotechar='"')
-        next(reader, None)
-        for doi, summary, conclusion in reader:
-            data = {
-                "doi": doi,
-                "summary": summary,
-                "conclusion": conclusion,
-                "date_added": datetime.now(),
-                "scitldr_version": "0.0.0",
-            }
-            yield data
-
-
-def files_to_db(fnames):
-    db = get_database()
-    for fname in fnames:
-        reader = _read_file(fname)
-    db.add_summary(reader)
+    @staticmethod
+    def from_config(path="../config/dev.json", key="postgres"):
+        with open(path, "r") as f:
+            config = json.load(f)
+        if key is not None:
+            config = config[key]
+            logger.debug(f"Loaded Postgres config section {key} form file {path}.")
+        else:
+            logger.debug(f"Loaded Postgres config form file {path}.")
+        return Database(db, **config)

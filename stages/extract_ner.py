@@ -43,7 +43,7 @@ async def _metamap_call(record):
     version_cmd = ""
     metamap_version = "2018AB"
     cmd = 'echo "%s" | %s/bin/metamap --lexicon db -Z 2018AB -I --JSONn'  # f 4'
-    #text = record.get("conclusion")
+    # text = record.get("conclusion")
     text = record.conclusion
     summary_id = record.id
     for exclude in ["conclusions", "conclusion"]:
@@ -89,7 +89,7 @@ def to_ner(phrases, summary_id, metamap_version):
             continue
         for elem in item["Mappings"]:
             named_entity = {
-                "ss_conclusion_id": summary_id, # TODO: verify
+                "ss_conclusion_id": summary_id,  # TODO: verify
                 "matched_term": item["Mappings"][0]["MappingCandidates"][0][
                     "CandidateMatched"
                 ].lstrip("*^"),
@@ -122,8 +122,7 @@ def _parse_locally(conclusions, batch_size=20):
     loop.close()
 
 
-
-#@db_session
+# @db_session
 def recognize_named_entities(sentences, parser="local"):
     """Extract MeSH terms from text."""
     parsers = {"local": _parse_locally, "web": _parse_online}
