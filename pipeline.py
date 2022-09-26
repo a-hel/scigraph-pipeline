@@ -2,9 +2,10 @@ from typing import Callable, Generator, Optional, Dict, List
 from contextlib import contextmanager
 
 from logging import Logger
-from pony.orm import db_session #TODO: factor out somehow
+from pony.orm import db_session  # TODO: factor out somehow
 
 logger = Logger()
+
 
 class PipelineStep:
     def __init__(
@@ -13,7 +14,7 @@ class PipelineStep:
         db: Optional["Database"],
         upstream: "db.Entity" = None,
         downstream: Optional["db.Entity"] = None,
-        mode: str = "unprocessed"
+        mode: str = "unprocessed",
     ):
         self.fn = fn
         self.db = db
@@ -26,13 +27,15 @@ class PipelineStep:
 
     def _count_upstream_rows(self):
         return self.upstream.select().count()
-        
 
     def _resolve_table_names(self, table_id):
         if isinstance(table_id, str):
             table_id = getattr(self.db, table_id)
         elif isinstance(table_id, list):
-            table_id = [getattr(self.db, tbl_id) if isinstance(tbl_id, str) else tbl_id for tbl_id in table_id]
+            table_id = [
+                getattr(self.db, tbl_id) if isinstance(tbl_id, str) else tbl_id
+                for tbl_id in table_id
+            ]
         else:
             raise ValueError("Table names must be of type String or EntityMeta")
         return table_id
@@ -43,7 +46,7 @@ class PipelineStep:
             raise AttributeError(
                 "You must specify a downstream table if you want to write your results."
             )
-        
+
         def run_full(order_by=None):
             if self.upstream:
                 all_data = self.db.get_records(
@@ -51,7 +54,7 @@ class PipelineStep:
                     run_all=True,
                     downstream=self.downstream,
                     prefetch=self.prefetch,
-                    order_by=order_by
+                    order_by=order_by,
                 )
             yield from run(all_data)
             # for data in all_data:
@@ -90,7 +93,12 @@ class PipelineStep:
                 continue
             yield res
 
-    def run_all(self, data: Generator[Dict, None, None], write: bool = True, order_by: str=None):
+    def run_all(
+        self,
+        data: Generator[Dict, None, None],
+        write: bool = True,
+        order_by: str = None,
+    ):
 
         with self.runner(run_all=True, write=write) as run:
             result = run(order_by=order_by)
