@@ -1,10 +1,12 @@
 from typing import Callable, Generator, Optional, Dict, List
 from contextlib import contextmanager
+from enum import Enum
 
-from logging import Logger
+import tqdm
 from pony.orm import db_session  # TODO: factor out somehow
 
-logger = Logger()
+from utils.run_modes import RunModes
+from utils.logging import logger
 
 
 class PipelineStep:
@@ -14,7 +16,7 @@ class PipelineStep:
         db: Optional["Database"],
         upstream: "db.Entity" = None,
         downstream: Optional["db.Entity"] = None,
-        mode: str = "unprocessed",
+        name: str = None,
     ):
         self.fn = fn
         self.db = db
@@ -24,9 +26,15 @@ class PipelineStep:
             )
         self.upstream = self._resolve_table_names(upstream)
         self.downstream = self._resolve_table_names(downstream)
+        self.name = f"step_{name or self.fn.__name__}"
 
-    def _count_upstream_rows(self):
-        return self.upstream.select().count()
+    def _count_upstream_rows(self, mode):
+        if mode == RunModes.ONCE:
+            return 1
+        n_elems = self.db.count_records(
+            table=self.upstream, downstream=self.downstream, mode=mode
+        )
+        return n_elems
 
     def _resolve_table_names(self, table_id):
         if isinstance(table_id, str):
@@ -41,28 +49,25 @@ class PipelineStep:
         return table_id
 
     @contextmanager
-    def runner(self, write=True, exists=True, run_all=False):
+    def runner(self, mode, order_by=None, write=True):
         if write and not self.downstream:
             raise AttributeError(
                 "You must specify a downstream table if you want to write your results."
             )
 
-        def run_full(order_by=None):
+        def run_full():
             if self.upstream:
                 all_data = self.db.get_records(
                     table=self.upstream,
-                    run_all=True,
+                    mode=mode,
                     downstream=self.downstream,
-                    prefetch=self.prefetch,
                     order_by=order_by,
                 )
             yield from run(all_data)
-            # for data in all_data:
-            #    yield from run(data)
 
-        def run_one(data):
+        def run_one(id):
             if self.upstream:
-                data = self.db.get_by_id(table=self.upstream, id=data)
+                data = self.db.get_by_id(table=self.upstream, id=id)
             yield from run(data)
 
         @db_session
@@ -76,36 +81,37 @@ class PipelineStep:
             else:
                 yield from result
 
-        if run_all:
-            yield run_full
-        else:
+        if mode == RunModes.ONCE:
             yield run_one
-
-    def run_once(
-        self, data: Generator[Dict, None, None], write: bool = True
-    ) -> Generator:
-        record = next(data)
-        with self.runner(write=write) as run:
-            result = run(record)
-
-        for res in result:
-            if not res:
-                continue
-            yield res
+        else:
+            yield run_full
 
     def run_all(
         self,
-        data: Generator[Dict, None, None],
         write: bool = True,
+        mode: RunModes = RunModes.ALL,
         order_by: str = None,
     ):
+        if not isinstance(mode, RunModes):
+            try:
+                mode = RunModes[mode.upper()]
+            except KeyError:
+                msg = f"Unknown mode '{mode}'. Allowed values are {', '.join(RunModes.__members__.keys())}"
+                raise KeyError(msg)
+        n_elems = self._count_upstream_rows(mode=mode)
+        with self.runner(write=write, mode=mode, order_by=order_by) as run:
+            result = run()
+        for elem in tqdm(result, total=n_elems, desc=self.name):
+            yield elem
 
-        with self.runner(run_all=True, write=write) as run:
-            result = run(order_by=order_by)
+    def run_once(self, id: int, write: bool = True):
+
+        with self.runner(write=write, mode=RunModes.ONCE, order_by=False) as run:
+            result = run(id=id)
         return result
 
-    def as_func(self, data, write):
+    def as_func(self, write, mode=RunModes.ALL, order_by=False):
         def func():
-            return self.run_all(data, write)
+            return self.run_all(write, mode, order_by)
 
         return func

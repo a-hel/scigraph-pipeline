@@ -15,6 +15,7 @@ from pony.orm import (
 )
 from pony.orm.core import EntityMeta
 
+from ..utils.run_modes import RunModes
 from ..utils.logging import logger
 
 db = PonyDatabase()
@@ -214,27 +215,42 @@ class Database:
     def get_by_id(self, table, id):
         return table[id]
 
-    def get_records(self, table, mode="all", downstream=None, order_by=None):
+    def _build_query(self, table, mode, downstream=None, order_by=False):
         if isinstance(table, str):
             table = getattr(self, table)
         if not isinstance(table, EntityMeta):
             raise (ValueError, "No table with with that name")
         select_functions = {
-            "all": self._get_all_records,
-            "unprocessed": self._get_unprocessed_records,
-            "newer": self._get_newer_records,
+            "ALL": self._get_all_records,
+            "FRESH": self._get_unprocessed_records,
+            "NEWER": self._get_newer_records,
         }
         try:
-            select_function = select_functions[mode]
+            select_function = select_functions[mode.name]
         except KeyError as e:
             raise KeyError(
                 f"Unknown mode '{mode}'. Allowed values are {','.join(select_functions.keys())}"
             )
-        elems = select_function(table, downstream)
+        query = select_function(table, downstream)
         if order_by is not None:
             column = getattr(table, order_by)
-            elems = elems.order_by(column)
+            query = query.order_by(column)
+        return query
+
+    def get_records(
+        self, table, mode: RunModes = RunModes.ALL, downstream=None, order_by=None
+    ):
+        elems = self._build_query(
+            table=table, mode=mode, downstream=downstream, order_by=order_by
+        )
         yield from elems
+
+    def count_records(self, table, mode, downstream=None):
+        query = self._build_query(
+            table=table, mode=mode, downstream=downstream, order_by=False
+        )
+        n_elems = query.count()
+        return n_elems
 
     def _get_all_records(self, table, downstream):
         elems = select(c for c in table)
