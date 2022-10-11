@@ -1,4 +1,3 @@
-
 import json
 
 from typing import Optional
@@ -10,15 +9,17 @@ from utils.logging import PipelineLogger
 
 logger = PipelineLogger("Neo4j")
 
+
 class NodeData(BaseModel):
     cui: str
     name: str
     version: Optional[str] = "test"
 
-    @validator('name')
+    @validator("name")
     def escape_chars(cls, val):
         val = val.replace("'", " ")
         return val
+
 
 class RelationshipEdgeData(BaseModel):
     doi: str
@@ -27,8 +28,11 @@ class RelationshipEdgeData(BaseModel):
     predicate: str
     version: Optional[str] = "test"
 
+
 class SynonymEdgeData(BaseModel):
     version: Optional[str] = "test"
+
+
 class GraphDB:
     def __init__(self, **config):
         self.username = config.get("username")
@@ -36,10 +40,12 @@ class GraphDB:
         self.host = config.get("host")
         self.port = config.get("port")
         self.uri = "bolt://%s:%s/%s" % (self.host, self.port, self.dbname)
-        #self.uri = "bolt://%s:%s" % (self.host, self.port)
+        # self.uri = "bolt://%s:%s" % (self.host, self.port)
         logger.debug("Connecting to %s" % self.uri)
         self.driver = GraphDatabase.driver(
-            self.uri, auth=(self.username, config.get("password")), encrypted=config.get("encryption", True)
+            self.uri,
+            auth=(self.username, config.get("password")),
+            encrypted=config.get("encryption", True),
         )
         with self.driver.session() as session:
             _ = session.run("match(n) return n;")
@@ -63,8 +69,7 @@ class GraphDB:
                 raise e
             result = output(result)
         return result
-    
-        
+
     def add_node(self, node):
         query = node.create_stmt()
         result = self.query(query, **node.data.dict())
@@ -87,16 +92,9 @@ class GraphDB:
         return GraphDB(**config)
 
 
-
 class Edge:
-    def __init__(self,
-                 start,
-                 end,
-                 edgetype,
-                 data={},
-                 match_on=['name', 'name']):
-        data_models = {"_SYN": SynonymEdgeData,
-        "_REL": RelationshipEdgeData}
+    def __init__(self, start, end, edgetype, data={}, match_on=["name", "name"]):
+        data_models = {"_SYN": SynonymEdgeData, "_REL": RelationshipEdgeData}
         self.edgetype = edgetype
         try:
             data_model = data_models[self.edgetype]
@@ -107,18 +105,20 @@ class Edge:
         self.end = end
         self.match_on_left, self.match_on_right = match_on
         if self.match_on_left not in self.start.data.dict():
-            raise ValueError("Unable to match on '%s'. Value not in left node (%s)." %
-                             (self.match_on_left, ", ".join(self.start.data.keys())))
+            raise ValueError(
+                "Unable to match on '%s'. Value not in left node (%s)."
+                % (self.match_on_left, ", ".join(self.start.data.keys()))
+            )
         if self.match_on_right not in self.end.data.dict():
-            raise ValueError("Unable to match on '%s'. Value not in right node" %
-                             self.match_on_right)
+            raise ValueError(
+                "Unable to match on '%s'. Value not in right node" % self.match_on_right
+            )
         self.nodetype_left = self.start.nodetype
         self.nodetype_right = self.end.nodetype
         self.join_key_left = self.match_on_left
         self.join_key_right = self.match_on_right
         self.join_value_left = self.start.data[self.match_on_left]
         self.join_value_right = self.end.data[self.match_on_right]
-
 
     def __repr__(self):
         rep = f"Edge('{self.start.data.name}', '{self.end.data.name}', edgetype='{self.edgetype}', data={self.data.__repr__()}, match_on=['{self.match_on_left}', '{self.match_on_left}']"
@@ -135,7 +135,7 @@ class Edge:
         self.data.update(data)
 
     def is_synonym(self):
-        return self.edgetype == '_SYN'
+        return self.edgetype == "_SYN"
 
     def _format_value(self, val):
         if isinstance(val, str):
@@ -148,7 +148,8 @@ class Edge:
             datastring = ""
         else:
             labels = [
-                f"{label}:{self._format_value(value)}" for label, value in self.data.dict().items()
+                f"{label}:{self._format_value(value)}"
+                for label, value in self.data.dict().items()
             ]
             datastring = " {%s}" % ", ".join(labels)
         query = f"""MATCH
@@ -159,6 +160,7 @@ b.{self.match_on_right} = '{self.end.data.dict()[self.match_on_right]}'
 MERGE (a)-[r:{self.edgetype}{datastring}]->(b)
 RETURN type(r)"""
         return query
+
 
 class Node:
     def __init__(self, nodetype, data={}):
@@ -193,7 +195,8 @@ class Node:
             datastring = ""
         else:
             labels = [
-                f"{label}:{self._format_value(value)}" for label, value in self.data.dict().items()
+                f"{label}:{self._format_value(value)}"
+                for label, value in self.data.dict().items()
             ]
             datastring = " {%s}" % ", ".join(labels)
         query = f"MERGE (a:{self.nodetype} {datastring})"

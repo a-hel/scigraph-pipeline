@@ -12,7 +12,7 @@ from pony.orm import (
     PrimaryKey,
     Set,
     select,
-    db_session
+    db_session,
 )
 from pony.orm.core import EntityMeta
 
@@ -44,7 +44,7 @@ class Summary(db.Entity):
 
     nodes = Set("Node", reverse="summary_id")
     edges = Set("Edge", reverse="summary_id")
-    #conclusions = Set("Conclusion", reverse="summary_id", lazy=False)
+    # conclusions = Set("Conclusion", reverse="summary_id", lazy=False)
     simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
     simple_substituted_conclusions = Set(
         "SimpleSubstitutedConclusions", reverse="summary_id", lazy=False
@@ -160,7 +160,7 @@ class Database:
         self.articles = Article
         self.abbreviations = Abbreviation
         self.summaries = Summary
-        #self.conclusions = Conclusion
+        # self.conclusions = Conclusion
         self.simple_conclusions = SimpleConclusions
         self.simple_substituted_conclusions = SimpleSubstitutedConclusions
         self.named_entities = NamedEntity
@@ -191,7 +191,7 @@ class Database:
                     last_record = table(**elem)
                 except ValueError as e:
                     print(elem)
-                    raise(e)
+                    raise (e)
                 if not e % periodic_commit:
                     logging.info("Processing %s: %s" % (e, last_record))
                     self._commit(table, last_record)
@@ -251,7 +251,9 @@ class Database:
         yield from elems
 
     def get_unique_nodes(self):
-        nodes = select((n.cui, n.matched, n.preferred) for n in self.nodes).order_by(lambda cui, matched, preferred: preferred)
+        nodes = select((n.cui, n.matched, n.preferred) for n in self.nodes).order_by(
+            lambda cui, matched, preferred: preferred
+        )
         yield from nodes
 
     def get_unique_edges(self):

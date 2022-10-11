@@ -19,7 +19,7 @@ class PipelineStep:
         upstream: "db.Entity" = None,
         downstream: Optional["db.Entity"] = None,
         name: str = None,
-        func_args: dict = {}
+        func_args: dict = {},
     ):
         self.fn = fn
         self.func_args = func_args
@@ -81,7 +81,7 @@ class PipelineStep:
         @db_session
         def run(data):
             logger.info(f"Running step {self.name} (write = {write})")
-            #logger.debug(f"{self.upstream._table_[-1]} -> {self.downstream._table_[-1]}")
+            # logger.debug(f"{self.upstream._table_[-1]} -> {self.downstream._table_[-1]}")
             result = self.fn(data, **self.func_args)
             if write:
                 for elem in result:

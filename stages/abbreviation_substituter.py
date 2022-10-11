@@ -44,7 +44,7 @@ def substitute_abbreviations(simple_conclusions, exclude=[1398855]):
         sentence = simple_conclusion.conclusion
         substituted_sentence = substitute(sentence, abbrevs)
         yield {
-            #"article_id": article_id,
+            # "article_id": article_id,
             "simple_conclusion_id": simple_conclusion.id,
             "summary_id": simple_conclusion.summary_id.id,
             "conclusion": substituted_sentence,

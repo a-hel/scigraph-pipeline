@@ -97,5 +97,3 @@ def summarize_articles(articles, checkpoint_file=None):
 
         data = {"doi": article["doi"], "summary": summary, "conclusion": conclusion}
         yield data
-
-

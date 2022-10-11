@@ -1,9 +1,11 @@
 from typing import List
 from lxml import etree
 
+
 def _expand_section(section):
     section = "\n".join([sec for sec in section.itertext()])
     return section
+
 
 def _text_from_xpath(root, xpath):
     elems = root.xpath(xpath)
@@ -33,9 +35,13 @@ def _extract_section(root, synonyms):
                 return text
     return text
 
-def parse(plaintext: str, include: List=[
+
+def parse(
+    plaintext: str,
+    include: List = [
         "research-article",
-    ]):
+    ],
+):
     article_elements = {
         "Abstract": _extract_abstract,
         "Introduction": lambda root: _extract_section(root, intro_synonyms),
