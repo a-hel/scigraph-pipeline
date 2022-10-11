@@ -6,6 +6,7 @@ from tqdm import tqdm
 from flytekit import task, workflow
 
 from connectors.postgres import Database
+from connectors.neo4j import GraphDB
 from pipeline import PipelineStep
 
 from stages.article_parser import load_article
@@ -16,122 +17,109 @@ from stages.sentence_simplyfier import simplify_sentences
 from stages.extract_ner import recognize_named_entities
 from stages.abbreviation_substituter import substitute_abbreviations
 from stages.triple_extractor import extract_triples
+from stages.graph_writer import add_nodes, GraphWriter
 
+from utils.logging import PipelineLogger
+
+logger = PipelineLogger("Workflow")
 
 load_dotenv()
 
 
 @task
-def load_article_task(article_id: int) -> List[dict]:
+def summarize_article_task(mode: str='NEWER', write: bool=False) -> List[dict]:
 
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
     ap = PipelineStep(
-        fn=load_article, db=db, upstream="articles", downstream="article_uri"
+        fn=summarize_articles, db=db, upstream="articles", downstream="summaries", name="Summarize"
     )
-    article = ap.run_once(iter(range(article_id, article_id + 1)), write=False)
-    # TODO: Write record to db
-    art = article.__next__()
-    return [art]
-
-
-@task
-def summarize_articles_task(article_id: int) -> List[dict]:
-
-    db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    ap = PipelineStep(
-        fn=summarize_articles, db=db, upstream="article_uris", downstream="summaries"
-    )
-    article = ap.run_once(iter(range(article_id, article_id + 1)), write=False)
-    # TODO: Write record to db
-    art = article.__next__()
-    return [art]
-
-
-@task
-def find_abbreviation_task(articles: List[Dict[str, str]]) -> List[Dict]:
-    db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    af = PipelineStep(fn=find_abbreviations, db=db, downstream="abbreviations")
-    ids = [abbr for abbr in af.run_all(articles, write=True)]
-    return ids
-
-
-@task
-def simplify_conclusions_task(articles: List[Dict[str, str]]) -> List[Dict]:
-    db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    af = PipelineStep(fn=simplify_sentences, db=db, downstream="abbreviations")
-    ids = [abbr for abbr in af.run_all(articles, write=True)]
-    return ids
-
-
-@task
-def substitute_abbreviation_task() -> None:
-    db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    sa = PipelineStep(
-        fn=substitute_abbreviations,
-        db=db,
-        upstream="abbreviations",
-        downstream="simple_substituted_conclusions",
-    )
-    for e, elem in tqdm(
-        enumerate(sa.run_all(data=1, write=True, order_by="summary_id"))
-    ):
+    articles = ap.run_all(mode=mode, write=write)
+    for article in articles:
         pass
 
 
 @task
-def ner_task() -> None:
+def find_abbreviation_task(mode: str='NEWER', write: bool=False) -> List[Dict]:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    af = PipelineStep(
+    af = PipelineStep(fn=find_abbreviations, db=db, upstream="articles", downstream="abbreviations", name="Abbreviations")
+    abbrevs = af.run_all(mode=mode, write=write)
+    for abbrev in abbrevs:
+        pass
+
+
+@task
+def simplify_conclusions_task(mode: str='NEWER', write: bool=False) -> List[Dict]:
+    db = Database.from_config(path=os.getenv("CONFIG_PATH"))
+    sf = PipelineStep(fn=simplify_sentences, db=db, upstream="summaries", downstream="simple_conclusions", name="Simplify")
+    simple_conclusions = sf.run_all(mode=mode, write=write)
+    for simple_conclusion in simple_conclusions:
+        pass
+
+
+@task
+def substitute_abbreviation_task(mode: str='NEWER', write: bool=False) -> None:
+    db = Database.from_config(path=os.getenv("CONFIG_PATH"))
+    sa = PipelineStep(
+        fn=substitute_abbreviations,
+        db=db,
+        upstream="simple_conclusions",
+        downstream="simple_substituted_conclusions",
+    )
+    simple_substituted_conclusions = sa.run_all(mode=mode, write=write)
+    for simple_substituted_conclusion in simple_substituted_conclusions:
+        pass
+
+
+@task
+def extract_named_entities_task(mode: str='NEWER', write: bool=False) -> None:
+    db = Database.from_config(path=os.getenv("CONFIG_PATH"))
+    ne = PipelineStep(
         fn=recognize_named_entities,
         db=db,
         upstream="simple_substituted_conclusions",
         downstream="named_entities",
     )
-    for e, elem in enumerate(af.run_all(data=1, write=True)):
-        if not e % 10000:
-            print("Processing entry %s" % e)
+    named_entities = ne.run_all(mode=mode, write=write)
+    for named_entity in named_entities:
+        pass
 
 
 @task
-def extract_triples_task() -> None:
+def extract_triples_task(mode: str='NEWER', write: bool=False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    sa = PipelineStep(
+    tr = PipelineStep(
         fn=extract_triples,
         db=db,
-        upstream="simple_substituted_conclusions",
+        upstream="summaries",
         downstream=["nodes", "edges"],
     )
-    for e, elem in enumerate(sa.run_all(data=1, write=True)):
-        if not e % 10000:
-            print("processing entry %s" % e)
+    triples = tr.run_all(mode=mode, write=write)
+    for triple in triples:
         pass
 
 
 @task
-def export_to_graph_task() -> None:
+def export_to_graph_task(mode: str='NEWER', write: bool=False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    sa = PipelineStep(fn=extract_triples, db=db, upstream=["nodes", "edges"])
-    for e, elem in enumerate(sa.run_all(data=1, write=True)):
-        if not e % 10000:
-            print("processing entry %s" % e)
-        pass
+    graph_db = GraphDB.from_config(path=os.getenv("CONFIG_PATH"), key="neo4j_staging")
+    #add_nodes(db, graph_db, write=write)
+    graph_writer = GraphWriter(db=db, graph_db=graph_db)
+    graph_writer.add_edges(write=write)
 
 
 @workflow
-def wf(idx: int = 1398855) -> None:
-    # article = load_article_task()
-    # summary = summarize_article_task()
-    # abbrevs = find_abbreviation_task(articles=articles)
-    # simple_conclusions = simplify_conclusions_task()
-    # subs = substitute_abbreviation_task()
-    # ners = extract_named_entities_task()
-    # triples = extract_triples_task()
-    graph = export_to_graph_task()
+def wf(mode: str = 'FRESH', write: bool = False) -> None:
+    logger.setLevel('DEBUG')
+    logger.info(f"Start workflow with mode {mode} (write={write}).")
+    # summary = summarize_article_task(mode=mode, write=write)
+    # abbrevs = find_abbreviation_task(mode=mode, write=write)
+    # simple_conclusions = simplify_conclusions_task(mode=mode, write=write)
+    # subs = substitute_abbreviation_task(mode=mode, write=write)
+    #ners = extract_named_entities_task(mode=mode, write=write)
+    #triples = extract_triples_task(mode=mode, write=write)
+    graph = export_to_graph_task(mode=mode, write=write)
+    
 
     return None
 
-
-# Next: substitute abbrevs in simple conclusions
-# Then: extract ner from that
-
-# pyflyte run workflow.py:wf --idx 1398855
+# pyflyte run workflow.py:wf --mode FRESH --write False

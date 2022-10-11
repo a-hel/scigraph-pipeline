@@ -76,7 +76,7 @@ class Summarizer:
         return hypotheses_batch
 
 
-def summarize_article(articles, checkpoint_file=None):
+def summarize_articles(articles, checkpoint_file=None):
     checkpoint_file = checkpoint_file or os.getenv("CHECKPOINT_FILE").replace(
         os.path.sep, "."
     )
@@ -99,8 +99,3 @@ def summarize_article(articles, checkpoint_file=None):
         yield data
 
 
-def summarize_articles(checkpoint_file=None):
-    def func(data):
-        yield from summarize_article(data, checkpoint_file)
-
-    return func

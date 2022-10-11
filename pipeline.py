@@ -2,11 +2,13 @@ from typing import Callable, Generator, Optional, Dict, List
 from contextlib import contextmanager
 from enum import Enum
 
-import tqdm
+from tqdm import tqdm
 from pony.orm import db_session  # TODO: factor out somehow
 
 from utils.run_modes import RunModes
-from utils.logging import logger
+from utils.logging import PipelineLogger
+
+logger = PipelineLogger("Pipeline")
 
 
 class PipelineStep:
@@ -17,8 +19,10 @@ class PipelineStep:
         upstream: "db.Entity" = None,
         downstream: Optional["db.Entity"] = None,
         name: str = None,
+        func_args: dict = {}
     ):
         self.fn = fn
+        self.func_args = func_args
         self.db = db
         if (upstream or downstream) and not self.db:
             raise AttributeError(
@@ -31,13 +35,17 @@ class PipelineStep:
     def _count_upstream_rows(self, mode):
         if mode == RunModes.ONCE:
             return 1
+        if self.downstream is None:
+            return -1
         n_elems = self.db.count_records(
             table=self.upstream, downstream=self.downstream, mode=mode
         )
         return n_elems
 
     def _resolve_table_names(self, table_id):
-        if isinstance(table_id, str):
+        if table_id is None:
+            return None
+        elif isinstance(table_id, str):
             table_id = getattr(self.db, table_id)
         elif isinstance(table_id, list):
             table_id = [
@@ -72,7 +80,9 @@ class PipelineStep:
 
         @db_session
         def run(data):
-            result = self.fn(data)
+            logger.info(f"Running step {self.name} (write = {write})")
+            #logger.debug(f"{self.upstream._table_[-1]} -> {self.downstream._table_[-1]}")
+            result = self.fn(data, **self.func_args)
             if write:
                 for elem in result:
                     id_ = self.db.add_record(data=result, table=self.downstream)
@@ -98,7 +108,11 @@ class PipelineStep:
             except KeyError:
                 msg = f"Unknown mode '{mode}'. Allowed values are {', '.join(RunModes.__members__.keys())}"
                 raise KeyError(msg)
-        n_elems = self._count_upstream_rows(mode=mode)
+        try:
+            n_elems = self._count_upstream_rows(mode=mode)
+        except AttributeError as e:
+            logger.warning("Unable to count processable rows: %s" % e)
+            n_elems = None
         with self.runner(write=write, mode=mode, order_by=order_by) as run:
             result = run()
         for elem in tqdm(result, total=n_elems, desc=self.name):

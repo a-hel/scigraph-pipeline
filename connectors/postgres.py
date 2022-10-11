@@ -12,12 +12,14 @@ from pony.orm import (
     PrimaryKey,
     Set,
     select,
+    db_session
 )
 from pony.orm.core import EntityMeta
 
-from ..utils.run_modes import RunModes
-from ..utils.logging import logger
+from utils.run_modes import RunModes
+from utils.logging import PipelineLogger
 
+logger = PipelineLogger("Postgres")
 db = PonyDatabase()
 
 
@@ -42,7 +44,7 @@ class Summary(db.Entity):
 
     nodes = Set("Node", reverse="summary_id")
     edges = Set("Edge", reverse="summary_id")
-    conclusions = Set("Conclusion", reverse="summary_id", lazy=False)
+    #conclusions = Set("Conclusion", reverse="summary_id", lazy=False)
     simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
     simple_substituted_conclusions = Set(
         "SimpleSubstitutedConclusions", reverse="summary_id", lazy=False
@@ -51,13 +53,13 @@ class Summary(db.Entity):
     abbreviations = Set("Abbreviation", reverse="summary_id")
 
 
-class Conclusion(db.Entity):
-    _table_ = ("SciGraphPipeline", "conclusions")
-    id = PrimaryKey(int, auto=True)
-    summary_id = Required(Summary, reverse="conclusions")
-    conclusion = Required(str)
-    date_added = Required(datetime)
-    simple_conclusions = Set("SimpleConclusions", reverse="conclusion_id", lazy=False)
+# class Conclusion(db.Entity):
+#     _table_ = ("SciGraphPipeline", "conclusions")
+#     id = PrimaryKey(int, auto=True)
+#     summary_id = Required(Summary, reverse="conclusions")
+#     conclusion = Required(str)
+#     date_added = Required(datetime)
+#     simple_conclusions = Set("SimpleConclusions", reverse="conclusion_id", lazy=False)
 
 
 class Abbreviation(db.Entity):
@@ -73,7 +75,6 @@ class Abbreviation(db.Entity):
 class SimpleConclusions(db.Entity):
     _table_ = ("SciGraphPipeline", "simple_conclusions")
     id = PrimaryKey(int, auto=True)
-    conclusion_id = Required(Conclusion, reverse="simple_conclusions")
     summary_id = Required(Summary, reverse="simple_conclusions")
     conclusion = Required(str, lazy=False)
     date_added = Required(datetime)
@@ -159,7 +160,7 @@ class Database:
         self.articles = Article
         self.abbreviations = Abbreviation
         self.summaries = Summary
-        self.conclusions = Conclusion
+        #self.conclusions = Conclusion
         self.simple_conclusions = SimpleConclusions
         self.simple_substituted_conclusions = SimpleSubstitutedConclusions
         self.named_entities = NamedEntity
@@ -186,7 +187,11 @@ class Database:
         last_record = type("placeholder", (), {"id": 0})
         if True:
             for e, elem in enumerate(data):
-                last_record = table(**elem)
+                try:
+                    last_record = table(**elem)
+                except ValueError as e:
+                    print(elem)
+                    raise(e)
                 if not e % periodic_commit:
                     logging.info("Processing %s: %s" % (e, last_record))
                     self._commit(table, last_record)
@@ -215,7 +220,7 @@ class Database:
     def get_by_id(self, table, id):
         return table[id]
 
-    def _build_query(self, table, mode, downstream=None, order_by=False):
+    def _build_query(self, table, mode, downstream=None, order_by=None):
         if isinstance(table, str):
             table = getattr(self, table)
         if not isinstance(table, EntityMeta):
@@ -245,9 +250,18 @@ class Database:
         )
         yield from elems
 
+    def get_unique_nodes(self):
+        nodes = select((n.cui, n.matched, n.preferred) for n in self.nodes).order_by(lambda cui, matched, preferred: preferred)
+        yield from nodes
+
+    def get_unique_edges(self):
+        edges = select(e for e in self.edges)
+        yield from edges
+
+    @db_session
     def count_records(self, table, mode, downstream=None):
         query = self._build_query(
-            table=table, mode=mode, downstream=downstream, order_by=False
+            table=table, mode=mode, downstream=downstream, order_by=None
         )
         n_elems = query.count()
         return n_elems
@@ -257,6 +271,8 @@ class Database:
         return elems
 
     def _get_unprocessed_records(self, table, downstream):
+        if isinstance(downstream, list):
+            downstream = downstream[0]
         elems = select(c for c in table if not getattr(c, downstream._table_[-1]).id)
         return elems
 

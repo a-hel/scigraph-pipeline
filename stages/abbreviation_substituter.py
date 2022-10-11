@@ -28,27 +28,25 @@ def _substitute_word(sentence, abbreviation):
 
 def substitute(sentence, abbrevs):
     for abbreviation in abbrevs:  # sentence.article_id.abbreviations:
-        print(sentence)
-        print(abbreviation)
         sentence = _substitute_word(sentence, abbreviation)
     return sentence
 
 
-def substitute_abbreviations(abbreviations, exclude=[1398855]):
-    for summary_id, abbrevs in groupby(abbreviations, key=lambda x: x.summary_id):
+def substitute_abbreviations(simple_conclusions, exclude=[1398855]):
+    for simple_conclusion in simple_conclusions:
+        abbrevs = simple_conclusion.summary_id.abbreviations
         abbrevs = list(abbrevs)
-        article_id = abbrevs[0].article_id.id
-        if article_id in exclude:
-            continue
-        sentences = summary_id.simple_conclusions.conclusion
-        for simple_conclusion_id in summary_id.simple_conclusions.id:
-            break
-        for sentence in sentences:
-            substituted_sentence = substitute(sentence, abbrevs)
-            yield {
-                "id": article_id,
-                "simple_conclusion_id": simple_conclusion_id,
-                "summary_id": summary_id,
-                "conclusion": substituted_sentence,
-                "date_added": datetime.now(),
-            }
+        # if len(abbrevs) == 0:
+        #     substituted_sentence
+        # article_id = abbrevs[0].article_id.id
+        # if article_id in exclude:
+        #     continue
+        sentence = simple_conclusion.conclusion
+        substituted_sentence = substitute(sentence, abbrevs)
+        yield {
+            #"article_id": article_id,
+            "simple_conclusion_id": simple_conclusion.id,
+            "summary_id": simple_conclusion.summary_id.id,
+            "conclusion": substituted_sentence,
+            "date_added": datetime.now(),
+        }

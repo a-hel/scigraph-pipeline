@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 from pipeline.graph import Node, Edge
 from pipeline.graph import DbDriver
-from pipeline import claucy
+from xpipeline import claucy
 
 import logging
 

@@ -10,13 +10,15 @@ logger = Logger(__name__)
 def _extract_triples(records, nlp):
     for record in records:
         data = {
-            "id": record.id,
-            "summary_id": record.summary_id,
-            "ne": record.named_entities,
+            "id": record.simple_substituted_conclusions.id,
+            "summary_id": record.id,
+            "ne": record.simple_substituted_conclusions.named_entities,
         }
-        text = record.conclusion
+        texts = record.simple_substituted_conclusions.conclusion
         # if texts.is_empty():
         #    continue
+        for text in texts:
+            break
         doc = nlp(text)
         for clause, triple in zip(doc._.clauses, doc._.triples):
             if triple is None:
@@ -69,13 +71,9 @@ def _match_terms(records, nlp, name="conclusions"):
         yield {"nodes": nodes_left + nodes_right, "edges": edges}
 
 
-def extract_triples(simplified_sentences):
-    print("start")
+def extract_triples(summaries):
     nlp = spacy.load("en_core_web_trf")
-    print("loaded spacy")
     nlp.add_pipe("claucy")
-    print("added claucy")
     nlp.add_pipe("InformationExtractor", after="claucy")
-    print("nlp loaded")
     logger.debug("NLP loaded")
-    yield from _match_terms(simplified_sentences, nlp)
+    yield from _match_terms(summaries, nlp)

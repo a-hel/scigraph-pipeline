@@ -3,7 +3,6 @@ import tarfile
 import os
 import pandas as pd
 
-
 class TarFileReader:
     def __init__(self, archive, lookup):
         lookup = pd.read_csv(lookup)
@@ -31,6 +30,7 @@ class TarFileReader:
         member = self.open_tarfile.getmember(art)
         content = self._member_to_text(member)
         return content
+
 
 
 def batched(data, batch_size=100):
