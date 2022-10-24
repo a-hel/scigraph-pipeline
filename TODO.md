@@ -7,11 +7,12 @@
 [x] Extract abbreviations
 [x] Combine abbreviations with summaries
 [ ] Check https://allenai.github.io/scispacy/ for faster NER
-[ ] Write Neo4j integration
+[x] Write Neo4j integration
 [ ] Run end-to-end
 [ ] Write migration
 [ ] Write docs
-[ ] Write tests?
+[ ] Write tests
+[ ] Refactor
 
 ## Quality
 [ ] Remove special characters like (TM), (r)

@@ -114,9 +114,9 @@ class PipelineStep:
             logger.warning("Unable to count processable rows: %s" % e)
             n_elems = None
         with self.runner(write=write, mode=mode, order_by=order_by) as run:
-            result = run()
-        for elem in tqdm(result, total=n_elems, desc=self.name):
-            yield elem
+            # result = run()
+            for elem in tqdm(run(), total=n_elems, desc=self.name):
+                yield elem
 
     def run_once(self, id: int, write: bool = True):
 

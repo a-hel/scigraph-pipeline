@@ -3,14 +3,8 @@
 import json
 import logging
 from datetime import datetime
-from typing import List, Dict
 from pony.orm import (
-    Database as PonyDatabase,
-    Required,
-    Optional,
     commit,
-    PrimaryKey,
-    Set,
     select,
     db_session,
 )
@@ -19,119 +13,24 @@ from pony.orm.core import EntityMeta
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
 
+from models.db_tables import (
+    db,
+    Article,
+    Summary,
+    Abbreviation,
+    SimpleConclusions,
+    SimpleSubstitutedConclusions,
+    NamedEntity,
+    Node,
+    Edge,
+    ConceptNode,
+    SynonymNode,
+    PredicateEdge,
+    SynonymEdge,
+    Log,
+)
+
 logger = PipelineLogger("Postgres")
-db = PonyDatabase()
-
-
-class Article(db.Entity):
-    _table_ = ("SciGraphPipeline", "articles")
-    id = PrimaryKey(int, auto=True)
-    doi = Required(str, index=True)
-    uri = Required(str)
-    summaries = Set("Summary", reverse="article_id")
-    abbreviations = Set("Abbreviation", reverse="article_id")
-
-
-class Summary(db.Entity):
-    _table_ = ("SciGraphPipeline", "summaries")
-    id = PrimaryKey(int, auto=True)
-    article_id = Required(Article, reverse="summaries")
-    summary = Required(str)
-    conclusion = Required(str)
-    date_added = Required(datetime)
-    scitldr_version = Required(str)
-    error = Optional(str)
-
-    nodes = Set("Node", reverse="summary_id")
-    edges = Set("Edge", reverse="summary_id")
-    # conclusions = Set("Conclusion", reverse="summary_id", lazy=False)
-    simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
-    simple_substituted_conclusions = Set(
-        "SimpleSubstitutedConclusions", reverse="summary_id", lazy=False
-    )
-    #    named_entities = Set("NamedEntity", reverse="summary_id")
-    abbreviations = Set("Abbreviation", reverse="summary_id")
-
-
-# class Conclusion(db.Entity):
-#     _table_ = ("SciGraphPipeline", "conclusions")
-#     id = PrimaryKey(int, auto=True)
-#     summary_id = Required(Summary, reverse="conclusions")
-#     conclusion = Required(str)
-#     date_added = Required(datetime)
-#     simple_conclusions = Set("SimpleConclusions", reverse="conclusion_id", lazy=False)
-
-
-class Abbreviation(db.Entity):
-    _table_ = ("SciGraphPipeline", "abbreviations")
-    id = PrimaryKey(int, auto=True)
-    article_id = Optional(Article, reverse="abbreviations")
-    summary_id = Optional(Summary, reverse="abbreviations")
-    doi = Optional(str)
-    abbreviation = Required(str)
-    meaning = Required(str)
-
-
-class SimpleConclusions(db.Entity):
-    _table_ = ("SciGraphPipeline", "simple_conclusions")
-    id = PrimaryKey(int, auto=True)
-    summary_id = Required(Summary, reverse="simple_conclusions")
-    conclusion = Required(str, lazy=False)
-    date_added = Required(datetime)
-    muss_version = Required(str)
-    error = Optional(str)
-    simple_substituted_conclusions = Set(
-        "SimpleSubstitutedConclusions", reverse="simple_conclusion_id"
-    )
-
-
-class SimpleSubstitutedConclusions(db.Entity):
-    _table_ = ("SciGraphPipeline", "simple_substituted_conclusions")
-    id = PrimaryKey(int, auto=True)
-    simple_conclusion_id = Required(
-        SimpleConclusions, reverse="simple_substituted_conclusions"
-    )
-    summary_id = Required(Summary, reverse="simple_substituted_conclusions")
-    conclusion = Required(str)
-    date_added = Required(datetime)
-    error = Optional(str)
-    named_entities = Set("NamedEntity", reverse="ss_conclusion_id")
-
-
-class NamedEntity(db.Entity):
-    _table_ = ("SciGraphPipeline", "named_entities")
-    id = PrimaryKey(int, auto=True)
-    ss_conclusion_id = Required(SimpleSubstitutedConclusions, reverse="named_entities")
-    matched_term = Required(str)
-    preferred_term = Required(str)
-    cui = Required(str)
-    metamap_version = Required(str)
-
-
-class Node(db.Entity):
-    _table_ = ("SciGraphPipeline", "nodes")
-    id = PrimaryKey(int, auto=True)
-    summary_id = Required(Summary, reverse="nodes")
-    cui = Required(str, unique=False)
-    matched = Optional(str)
-    preferred = Required(str)
-
-
-class Edge(db.Entity):
-    _table_ = ("SciGraphPipeline", "edges")
-    id = PrimaryKey(int, auto=True)
-    summary_id = Required(Summary, reverse="edges")
-    predicate = Required(str)
-    cui_left = Required(str)
-    cui_right = Required(str)
-
-
-class Log(db.Entity):
-    _table_ = ("SciGraphPipeline", "log")
-    id = PrimaryKey(int, auto=True)
-    table = Required(str)
-    last_processed = Required(int)
-    timestamp = Required(datetime)
 
 
 class Database:
@@ -160,12 +59,15 @@ class Database:
         self.articles = Article
         self.abbreviations = Abbreviation
         self.summaries = Summary
-        # self.conclusions = Conclusion
         self.simple_conclusions = SimpleConclusions
         self.simple_substituted_conclusions = SimpleSubstitutedConclusions
         self.named_entities = NamedEntity
         self.nodes = Node
+        self.concept_nodes = ConceptNode
+        self.synonym_nodes = SynonymNode
         self.edges = Edge
+        self.predicate_edges = PredicateEdge
+        self.synonym_edges = SynonymEdge
         self.logs = Log
         logger.debug(f"Connected to database:\t{user}@{host}:{port}/{database}")
 
@@ -185,19 +87,17 @@ class Database:
     # @db_session
     def _add_record(self, data, table, periodic_commit=50):
         last_record = type("placeholder", (), {"id": 0})
-        if True:
-            for e, elem in enumerate(data):
-                try:
-                    last_record = table(**elem)
-                except ValueError as e:
-                    print(elem)
-                    raise (e)
-                if not e % periodic_commit:
-                    logging.info("Processing %s: %s" % (e, last_record))
-                    self._commit(table, last_record)
-            # finally:
-            self._commit(table, last_record)
-        print("Finished cycle")
+        for e, elem in enumerate(data):
+            try:
+                last_record = table(**elem)
+            except TypeError as e:
+                print(elem)
+                raise (e)
+            if not e % periodic_commit:
+                # logging.debug("Processing %s: %s" % (e, last_record))
+                self._commit(table, last_record)
+        # finally:
+        self._commit(table, last_record)
         return last_record.id
 
     def get_summaries(self):
@@ -212,7 +112,10 @@ class Database:
         elif isinstance(table, list):
             for elem in data:
                 for tbl in table:
-                    filtered_records = elem[tbl._table_[-1]]
+                    try:
+                        filtered_records = [elem[tbl._table_[-1]]]
+                    except KeyError:
+                        continue
                     last_id = self._add_record(filtered_records, tbl, periodic_commit)
             return last_id
         raise TypeError("Expected table, name, or dict  got %s" % type(table))

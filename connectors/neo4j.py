@@ -1,3 +1,4 @@
+import os
 import json
 
 from typing import Optional
@@ -56,6 +57,17 @@ class GraphDB:
     def _as_list(self, res):
         return list(res)
 
+    @property
+    def import_dir(self):
+        config_query = """
+Call dbms.listConfig() YIELD name, value
+WHERE name='%s'
+RETURN value
+        """
+        homedir = self.query(config_query % "dbms.directories.neo4j_home", out="list")
+        importdir = self.query(config_query % "dbms.directories.import", out="list")
+        return os.path.join(homedir[0].value(), importdir[0].value())
+
     def query(self, query, out="graph", **kwargs):
         output = {"graph": self._as_graph, "list": self._as_list}[out]
         logger.debug("Running query: <%s>" % query)
@@ -101,15 +113,28 @@ class Edge:
         except KeyError:
             raise KeyError(f"Unsuported edge type: '{self.edgetype}'.")
         self.data = data_model(**data).dict()
+        self.match_on_left, self.match_on_right = match_on
+        if isinstance(start, str):
+            start = type(
+                "DataObj",
+                (),
+                {"nodetype": "concept", "data": {self.match_on_left: start}},
+            )
+        if isinstance(end, str):
+            end = type(
+                "DataObj",
+                (),
+                {"nodetype": "concept", "data": {self.match_on_right: end}},
+            )
         self.start = start
         self.end = end
-        self.match_on_left, self.match_on_right = match_on
-        if self.match_on_left not in self.start.data.dict():
+
+        if self.match_on_left not in self.start.data:
             raise ValueError(
                 "Unable to match on '%s'. Value not in left node (%s)."
                 % (self.match_on_left, ", ".join(self.start.data.keys()))
             )
-        if self.match_on_right not in self.end.data.dict():
+        if self.match_on_right not in self.end.data:
             raise ValueError(
                 "Unable to match on '%s'. Value not in right node" % self.match_on_right
             )
