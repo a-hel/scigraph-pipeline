@@ -79,7 +79,7 @@ class GraphWriter:
     def load_synonym_nodes(self):
         def format_data(record):
             data = {
-                "node_id": record.node_id,
+                "node_id": record.id,
                 "cui": record.cui,
                 "name": record.name,
                 "_version": record._version,
@@ -106,9 +106,10 @@ class GraphWriter:
                 "conclusion": record.conclusion,
                 "summary": record.summary,
                 "doi": record.doi,
-                "predicate": record.predicate,
+                "predicate": record.name,
                 "cui_left": record.cui_left,
                 "cui_right": record.cui_right,
+                "date_added": record._date_added,
             }
             return data
 
@@ -132,12 +133,16 @@ class GraphWriter:
         (a)-[r:_VERB {datastring}]->(b)
     RETURN type(r)
         """
-        columns = data.keys() + ["cui_left", "cui_right"]
+        columns = list(data.keys()) + ["cui_left", "cui_right"]
         return source_table, batch_stmt, format_data, columns
 
     def load_synonym_edges(self):
         def format_data(record):
-            data = {"id_left": record.id_left, "id_right": record.id_right}
+            data = {
+                "id_left": record.id_left,
+                "id_right": record.id_right,
+                "date_added": record._date_added,
+            }
             return data
 
         data = {"date_added": self._load_date}
@@ -154,7 +159,7 @@ class GraphWriter:
         (a)-[r:_SYN {datastring}]->(b)
     RETURN type(r)
         """
-        columns = data.keys() + ["id_left", "id_right"]
+        columns = list(data.keys()) + ["id_left", "id_right"]
         return source_table, batch_stmt, format_data, columns
 
     @db_session
@@ -181,9 +186,9 @@ class GraphWriter:
         )
 
     @db_session
-    def add_predicates(self, write=False, batch_size=10_000):
-        records = self.db.get_records("predicate_nodes")
-        elem_type = "predicate_nodes"
+    def add_predicates(self, write=False, batch_size=200):
+        records = self.db.get_records("predicate_edges")
+        elem_type = "predicate_edges"
         self.batch_load(
             elem_type=elem_type, data=records, write=write, batch_size=batch_size
         )
@@ -245,7 +250,7 @@ class GraphWriter:
                     importdiroffset=len(neo4j_import_dir),
                 )
                 logger.debug(
-                    f"Loaded {len(result)} new records (batch size = {batch_size})."
+                    f"Loaded {len(result or [])} new records (batch size = {batch_size})."
                 )
 
     def migrate(self, mode="Rebuild"):
