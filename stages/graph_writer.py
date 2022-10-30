@@ -10,7 +10,7 @@ from pathlib import Path
 import more_itertools
 
 from connectors.neo4j import Node, Edge
-from pony.orm import db_session
+from pony.orm import commit, db_session, rollback
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
 
@@ -35,11 +35,11 @@ class GraphDBInterface(ABC):
         pass
 
 
-class ConceptNode(GraphDBInterface):
+class ConceptNodeIF(GraphDBInterface):
     def __init__(self):
         self.name = "Concept node"
         self.props = ""
-        self.stmt = "MERGE (a:concept {datastring})"
+        self.stmt = "MERGE (a:concept {datastring}) return count(a)"
         self.data = {
             "node_id": "row.node_id",
             "cui": "row.cui",
@@ -47,6 +47,7 @@ class ConceptNode(GraphDBInterface):
             "date_added": _load_date(),
         }
         self.source_table = "concept_nodes"
+        self.columns = list(self.data.keys())
 
     def format_data(self, record) -> dict:
         data = {
@@ -172,20 +173,22 @@ class GraphWriter:
             datastring = " {%s}" % ", ".join(labels)
         return datastring
 
-    @db_session
     def add_edges(self, write=False, batch_size=10_000):
         records = self.db.get_unique_edges()
         self.batch_load_edges(
             edge_type="_VERB", edges=records, batch_size=batch_size, write=write
         )
 
-    @db_session
-    def add_concepts(self, write=False, batch_size=10_000):
-        records = self.db.get_records("concept_nodes")
-        elem_type = "concept_nodes"
+    def _add_elems(self, db_interface, write=False, batch_size=5000):
+        source_table = db_interface.source_table
+        records = self.db.get_records(source_table)
         self.batch_load(
-            elem_type=elem_type, data=records, write=write, batch_size=batch_size
+            db_interface=db_interface, data=records, write=write, batch_size=batch_size
         )
+
+    def add_concepts(self, write=False, batch_size=5000):
+        interface = ConceptNodeIF()
+        self._add_elems(db_interface=interface, write=write, batch_size=batch_size)
 
     @db_session
     def add_synonyms(self, write=False, batch_size=5000):
@@ -232,9 +235,10 @@ class GraphWriter:
                 row = [data[col] for col in db_interface.columns]
                 writer.writerow(row)
         temp_file_relative = Path(*temp_file.parts[-2:])
+        datastring = self._serialize_props(db_interface.data, quote=False)
         query = (
             f'LOAD CSV WITH HEADERS FROM "file:///{temp_file_relative}" AS row '
-            + db_interface.stmt
+            + db_interface.stmt.format(datastring=datastring)
         )
         if write:
             result = self.graph_db.query(query, out="list")
@@ -252,14 +256,9 @@ class GraphWriter:
         neo4j_import_dir = self.graph_db.import_dir
         logger.debug(f"Found import directory at '{neo4j_import_dir}'.")
         with tempfile.TemporaryDirectory(dir=neo4j_import_dir) as temp_dir:
+            temp_dir_path = Path(temp_dir)
             for batch in more_itertools.ichunked(data, batch_size):
-                n_results = self._load_batch(
-                    batch,
-                    db_interface,
-                    temp_dir,
-                    write,
-                    importdiroffset=len(neo4j_import_dir),
-                )
+                n_results = self._load_batch(batch, db_interface, temp_dir_path, write)
                 logger.debug(
                     f"Loaded {n_results or 'n/a'} new records (batch size = {batch_size})."
                 )

@@ -121,17 +121,17 @@ def extract_triples_task(mode: str = "NEWER", write: bool = False) -> None:
 @task
 def add_to_staging_task(mode: str = "NEWER", write: bool = False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    # st = PipelineStep(
-    #     fn=stage_nodes,
-    #     db=db,
-    #     upstream="nodes",
-    #     downstream=["concept_nodes", "synonym_nodes", "synonym_edges"],
-    # )
-    # elems = st.run_all(
-    #     mode=mode, write=write, order_by=["preferred", "matched"], errors="skip"
-    # )
-    # for elem in elems:
-    #     pass
+    st = PipelineStep(
+        fn=stage_nodes,
+        db=db,
+        upstream="nodes",
+        downstream=["concept_nodes", "synonym_nodes", "synonym_edges"],
+    )
+    elems = st.run_all(
+        mode=mode, write=write, order_by=["preferred", "matched"], duplicates="skip"
+    )
+    for elem in elems:
+        pass
     st = PipelineStep(
         fn=stage_edges, db=db, upstream="edges", downstream="predicate_edges"
     )
@@ -146,10 +146,10 @@ def export_to_graph_task(mode: str = "NEWER", write: bool = False) -> None:
     graph_db = GraphDB.from_config(path=os.getenv("CONFIG_PATH"), key="neo4j_staging")
     # add_nodes(db, graph_db, write=write)
     graph_writer = GraphWriter(db=db, graph_db=graph_db)
-    # graph_writer.add_concepts(write=write)
+    graph_writer.add_concepts(write=write)
     # graph_writer.add_synonyms(write=write)
     # graph_writer.add_predicates(write=write)
-    graph_writer.add_synonyms_edges(write=write)
+    # graph_writer.add_synonyms_edges(write=write)
 
 
 verify_graph = ShellTask(
@@ -180,8 +180,8 @@ def wf(mode: str = "FRESH", write: bool = False) -> None:
     # subs = substitute_abbreviation_task(mode=mode, write=write)
     # ners = extract_named_entities_task(mode=mode, write=write)
     # triples = extract_triples_task(mode=mode, write=write)
-    staged = add_to_staging_task(mode=mode, write=write)
-    # graph = export_to_graph_task(mode=mode, write=write)
+    # staged = add_to_staging_task(mode=mode, write=write)
+    graph = export_to_graph_task(mode=mode, write=write)
     # test_results = verify_graph()
 
     return None

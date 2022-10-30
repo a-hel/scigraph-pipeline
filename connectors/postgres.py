@@ -8,7 +8,7 @@ from pony.orm import (
     select,
     db_session,
 )
-from pony.orm.core import EntityMeta, CacheIndexError
+from pony.orm.core import EntityMeta, CacheIndexError, TransactionIntegrityError
 
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
@@ -155,13 +155,18 @@ class Database:
                 query = query.order_by(column)
         return query
 
+    @db_session
     def get_records(
         self, table, mode: RunModes = RunModes.ALL, downstream=None, order_by=None
     ):
         elems = self._build_query(
             table=table, mode=mode, downstream=downstream, order_by=order_by
         )
-        yield from elems
+        try:
+            yield from elems
+        except TransactionIntegrityError:
+            query = self.db.select(elems.get_sql())
+            yield from query
 
     def get_unique_nodes(self):
         nodes = select((n.cui, n.matched, n.preferred) for n in self.nodes).order_by(
