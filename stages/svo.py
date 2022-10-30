@@ -1,9 +1,8 @@
-#from nltk.stem.wordnet import WordNetLemmatizer
-import spacy
-from .claucy_tmp import add_to_pipe, Clause
+from spacy.tokens import Span, Doc
 
 SUBJECTS = ["nsubj", "nsubjpass", "csubj", "csubjpass", "agent", "expl"]
 OBJECTS = ["dobj", "dative", "attr", "oprd"]
+
 
 def getSubsFromConjunctions(subs):
     moreSubs = []
@@ -12,10 +11,13 @@ def getSubsFromConjunctions(subs):
         rights = list(sub.rights)
         rightDeps = {tok.lower_ for tok in rights}
         if "and" in rightDeps:
-            moreSubs.extend([tok for tok in rights if tok.dep_ in SUBJECTS or tok.pos_ == "NOUN"])
+            moreSubs.extend(
+                [tok for tok in rights if tok.dep_ in SUBJECTS or tok.pos_ == "NOUN"]
+            )
             if len(moreSubs) > 0:
                 moreSubs.extend(getSubsFromConjunctions(moreSubs))
     return moreSubs
+
 
 def getObjsFromConjunctions(objs):
     moreObjs = []
@@ -24,10 +26,13 @@ def getObjsFromConjunctions(objs):
         rights = list(obj.rights)
         rightDeps = {tok.lower_ for tok in rights}
         if "and" in rightDeps:
-            moreObjs.extend([tok for tok in rights if tok.dep_ in OBJECTS or tok.pos_ == "NOUN"])
+            moreObjs.extend(
+                [tok for tok in rights if tok.dep_ in OBJECTS or tok.pos_ == "NOUN"]
+            )
             if len(moreObjs) > 0:
                 moreObjs.extend(getObjsFromConjunctions(moreObjs))
     return moreObjs
+
 
 def getVerbsFromConjunctions(verbs):
     moreVerbs = []
@@ -38,6 +43,7 @@ def getVerbsFromConjunctions(verbs):
             if len(moreVerbs) > 0:
                 moreVerbs.extend(getVerbsFromConjunctions(moreVerbs))
     return moreVerbs
+
 
 def findSubs(tok):
     head = tok.head
@@ -55,12 +61,14 @@ def findSubs(tok):
         return [head], isNegated(tok)
     return [], False
 
+
 def isNegated(tok):
     negations = {"no", "not", "n't", "never", "none"}
     for dep in list(tok.lefts) + list(tok.rights):
         if dep.lower_ in negations:
             return True
     return False
+
 
 def xfindSVs(tokens):
     svs = []
@@ -72,12 +80,21 @@ def xfindSVs(tokens):
                 svs.append((sub.orth_, "!" + v.orth_ if verbNegated else v.orth_))
     return svs
 
+
 def getObjsFromPrepositions(deps):
     objs = []
     for dep in deps:
         if dep.pos_ == "ADP" and dep.dep_ == "prep":
-            objs.extend([tok for tok in dep.rights if tok.dep_  in OBJECTS or (tok.pos_ == "PRON" and tok.lower_ == "me")])
+            objs.extend(
+                [
+                    tok
+                    for tok in dep.rights
+                    if tok.dep_ in OBJECTS
+                    or (tok.pos_ == "PRON" and tok.lower_ == "me")
+                ]
+            )
     return objs
+
 
 def xgetObjsFromAttrs(deps):
     for dep in deps:
@@ -92,6 +109,7 @@ def xgetObjsFromAttrs(deps):
                         return v, objs
     return None, None
 
+
 def getObjFromXComp(deps):
     for dep in deps:
         if dep.pos_ == "VERB" and dep.dep_ == "xcomp":
@@ -103,6 +121,7 @@ def getObjFromXComp(deps):
                 return v, objs
     return None, None
 
+
 def getAllSubs(v):
     verbNegated = isNegated(v)
     subs = [tok for tok in v.lefts if tok.dep_ in SUBJECTS and tok.pos_ != "DET"]
@@ -113,18 +132,24 @@ def getAllSubs(v):
         subs.extend(foundSubs)
     return subs, verbNegated
 
+
 def getAllObjs(v):
     # rights is a generator
     rights = list(v.rights)
     objs = [tok for tok in rights if tok.dep_ in OBJECTS]
     objs.extend(getObjsFromPrepositions(rights))
     potentialNewVerb, potentialNewObjs = getObjFromXComp(rights)
-    if potentialNewVerb is not None and potentialNewObjs is not None and len(potentialNewObjs) > 0:
+    if (
+        potentialNewVerb is not None
+        and potentialNewObjs is not None
+        and len(potentialNewObjs) > 0
+    ):
         objs.extend(potentialNewObjs)
         v = potentialNewVerb
     if len(objs) > 0:
         objs.extend(getObjsFromConjunctions(objs))
     return v, objs
+
 
 def findSVO(tokens):
     verbs = [tok for tok in tokens if tok.pos_ == "VERB" and tok.dep_ != "aux"]
@@ -136,26 +161,40 @@ def findSVO(tokens):
         for sub in subs:
             for obj in objs:
                 objNegated = isNegated(obj)
-                svo = (sub.lower_, "!" + v.lower_ if verbNegated or objNegated else v.lower_, obj.lower_)
+                svo = (
+                    sub.lower_,
+                    "!" + v.lower_ if verbNegated or objNegated else v.lower_,
+                    obj.lower_,
+                )
                 yield svo
 
 
 def printDeps(toks):
     for tok in toks:
-        print(tok.orth_, tok.dep_, tok.pos_, tok.head.orth_, [t.orth_ for t in tok.lefts], [t.orth_ for t in tok.rights])
+        print(
+            tok.orth_,
+            tok.dep_,
+            tok.pos_,
+            tok.head.orth_,
+            [t.orth_ for t in tok.lefts],
+            [t.orth_ for t in tok.rights],
+        )
+
 
 def blah(nlp):
     print("--------------------------------------------------")
-    tok = nlp("because he hit me and also made me so angry i wanted to kill him with a hammer.")
+    tok = nlp(
+        "because he hit me and also made me so angry i wanted to kill him with a hammer."
+    )
     svos = findSVOs(tok)
     printDeps(tok)
     print(svos)
-    assert set(svos) == {('he', 'hit', 'me'), ('i', 'kill', 'him')}
+    assert set(svos) == {("he", "hit", "me"), ("i", "kill", "him")}
 
 
 def findSVOs(records):
     for record in records:
-        clause = record['clause']
+        clause = record["clause"]
         for svo in findSVO(clause):
-            record['svo'] = svo
+            record["svo"] = svo
             yield record

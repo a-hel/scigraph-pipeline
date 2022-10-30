@@ -24,10 +24,8 @@ Doc.set_extension("clauses", default=[], force=True)
 Span.set_extension("clauses", default=[], force=True)
 
 dictionary = {
-    "non_ext_copular":
-    """die walk""".split(),
-    "ext_copular":
-    """act
+    "non_ext_copular": """die walk""".split(),
+    "ext_copular": """act
 appear
 be
 become
@@ -60,8 +58,7 @@ lie
 love
 do
 try""".split(),
-    "complex_transitive":
-    """
+    "complex_transitive": """
 bring
 catch
 drive
@@ -77,15 +74,13 @@ show
 stand
 slip
 take""".split(),
-    "adverbs_ignore":
-    """so
+    "adverbs_ignore": """so
 then
 thus
 why
 as
 even""".split(),
-    "adverbs_include":
-    """
+    "adverbs_include": """
 hardly
 barely
 scarcely
@@ -94,16 +89,16 @@ rarely""".split(),
 }
 
 
-#@spacy.Language.component('claucy')
+# @spacy.Language.component('claucy')
 class Clause:
     def __init__(
-            self,
-            subject: typing.Optional[Span] = None,
-            verb: typing.Optional[Span] = None,
-            indirect_object: typing.Optional[Span] = None,
-            direct_object: typing.Optional[Span] = None,
-            complement: typing.Optional[Span] = None,
-            adverbials: typing.List[Span] = None,
+        self,
+        subject: typing.Optional[Span] = None,
+        verb: typing.Optional[Span] = None,
+        indirect_object: typing.Optional[Span] = None,
+        direct_object: typing.Optional[Span] = None,
+        complement: typing.Optional[Span] = None,
+        adverbials: typing.List[Span] = None,
     ):
         """
 
@@ -147,17 +142,18 @@ class Clause:
         has_complement = self.complement is not None
         has_adverbial = len(self.adverbials) > 0
         has_ext_copular_verb = (
-            has_verb and self.verb.root.lemma_ in dictionary["ext_copular"])
+            has_verb and self.verb.root.lemma_ in dictionary["ext_copular"]
+        )
         has_non_ext_copular_verb = (
-            has_verb
-            and self.verb.root.lemma_ in dictionary["non_ext_copular"])
+            has_verb and self.verb.root.lemma_ in dictionary["non_ext_copular"]
+        )
         conservative = MOD_CONSERVATIVE
         has_direct_object = self.direct_object is not None
         has_indirect_object = self.indirect_object is not None
         has_object = has_direct_object or has_indirect_object
         complex_transitive = (
-            has_verb
-            and self.verb.root.lemma_ in dictionary["complex_transitive"])
+            has_verb and self.verb.root.lemma_ in dictionary["complex_transitive"]
+        )
 
         clause_type = "undefined"
         # # Original
@@ -234,20 +230,23 @@ class Clause:
 
     def __repr__(self):
         return "<{}, {}, {}, {}, {}, {}, {}>".format(
-            self.type, self.subject, self.verb, self.indirect_object,
-            self.direct_object, self.complement, self.adverbials)
+            self.type,
+            self.subject,
+            self.verb,
+            self.indirect_object,
+            self.direct_object,
+            self.complement,
+            self.adverbials,
+        )
 
-    def to_propositions(self,
-                        as_text: bool = False,
-                        inflect: str = "VBD",
-                        capitalize: bool = False):
+    def to_propositions(
+        self, as_text: bool = False, inflect: str = "VBD", capitalize: bool = False
+    ):
 
         if inflect and not as_text:
-            logging.warning(
-                "`inflect' argument is ignored when `as_text==False'")
+            logging.warning("`inflect' argument is ignored when `as_text==False'")
         if capitalize and not as_text:
-            logging.warning(
-                "`capitalize' argument is ignored when `as_text==False'")
+            logging.warning("`capitalize' argument is ignored when `as_text==False'")
 
         propositions = []
 
@@ -287,16 +286,14 @@ class Clause:
                         if self.adverbials:
                             for a in self.adverbials:
                                 propositions.append(tuple(prop + [obj, a]))
-                            propositions.append(
-                                tuple(prop + [obj] + self.adverbials))
+                            propositions.append(tuple(prop + [obj] + self.adverbials))
 
                 elif self.type == "SVOC":
                     for obj in indirect_objects + direct_objects:
                         if complements:
                             for c in complements:
                                 propositions.append(tuple(prop + [obj, c]))
-                            propositions.append(
-                                tuple(prop + [obj] + complements))
+                            propositions.append(tuple(prop + [obj] + complements))
                 elif self.type == "SVC":
                     if complements:
                         for c in complements:
@@ -307,18 +304,21 @@ class Clause:
         propositions = list(set(propositions))
 
         if as_text:
-            return _convert_clauses_to_text(propositions,
-                                            inflect=inflect,
-                                            capitalize=capitalize)
+            return _convert_clauses_to_text(
+                propositions, inflect=inflect, capitalize=capitalize
+            )
 
         return propositions
 
 
 def inflect_token(token, inflect):
-    if (inflect and token.pos_ == "VERB"
-            and "AUX" not in [tt.pos_ for tt in token.lefts]
-            # t is not preceded by an auxiliary verb (e.g. `the birds were ailing`)
-            and token.dep_ != 'pcomp'):  # t `dreamed of becoming a dancer`
+    if (
+        inflect
+        and token.pos_ == "VERB"
+        and "AUX" not in [tt.pos_ for tt in token.lefts]
+        # t is not preceded by an auxiliary verb (e.g. `the birds were ailing`)
+        and token.dep_ != "pcomp"
+    ):  # t `dreamed of becoming a dancer`
         return str(token._.inflect(inflect))
     else:
         return str(token)
@@ -355,9 +355,7 @@ def _convert_clauses_to_text(propositions, inflect, capitalize):
     # ]
 
     if capitalize:  # Capitalize and add a full stop.
-        proposition_texts = [
-            text.capitalize() + "." for text in proposition_texts
-        ]
+        proposition_texts = [text.capitalize() + "." for text in proposition_texts]
 
     return proposition_texts
 
@@ -367,19 +365,16 @@ def _get_verb_matches(span):
     # (see mdmjsh answer here: https://stackoverflow.com/questions/47856247/extract-verb-phrases-using-spacy)
 
     verb_matcher = Matcher(span.vocab)
-    verb_matcher.add("Auxiliary verb phrase aux-verb", [
-        [{
-            "POS": "AUX"
-        }, {
-            "POS": "VERB"
-        }],
-    ])
+    verb_matcher.add(
+        "Auxiliary verb phrase aux-verb",
+        [
+            [{"POS": "AUX"}, {"POS": "VERB"}],
+        ],
+    )
     verb_matcher.add("Auxiliary verb phrase", [[{"POS": "AUX"}]])
     verb_matcher.add(
         "Verb phrase",
-        [[{
-            "POS": "VERB"
-        }]],
+        [[{"POS": "VERB"}]],
     )
 
     return verb_matcher(span)
@@ -454,24 +449,28 @@ def extract_clauses(span):
 
         indirect_object = _find_matching_child(verb.root, ["dative"])
         direct_object = _find_matching_child(verb.root, ["dobj"])
-        complement = _find_matching_child(verb.root,
-                                          ["ccomp", "acomp", "xcomp", "attr"])
+        complement = _find_matching_child(
+            verb.root, ["ccomp", "acomp", "xcomp", "attr"]
+        )
         adverbials = [
-            extract_span_from_entity(c) for c in verb.root.children
+            extract_span_from_entity(c)
+            for c in verb.root.children
             if c.dep_ in ("prep", "advmod", "agent")
         ]
 
-        clause = Clause(subject=subject,
-                        verb=verb,
-                        indirect_object=indirect_object,
-                        direct_object=direct_object,
-                        complement=complement,
-                        adverbials=adverbials)
+        clause = Clause(
+            subject=subject,
+            verb=verb,
+            indirect_object=indirect_object,
+            direct_object=direct_object,
+            complement=complement,
+            adverbials=adverbials,
+        )
         clauses.append(clause)
     return clauses
 
 
-@spacy.Language.component('claucy')
+@spacy.Language.component("claucy")
 def extract_clauses_doc(doc):
     for sent in doc.sents:
         clauses = extract_clauses(sent)
@@ -481,7 +480,7 @@ def extract_clauses_doc(doc):
 
 
 def add_to_pipe(nlp):
-    nlp.add_pipe('claucy')
+    nlp.add_pipe("claucy")
 
 
 def extract_span_from_entity(token):
@@ -491,8 +490,7 @@ def extract_span_from_entity(token):
 
 def extract_span_from_entity_no_cc(token):
     ent_subtree = sorted(
-        [token] +
-        [c for c in token.children if c.dep_ not in ["cc", "conj", "prep"]],
+        [token] + [c for c in token.children if c.dep_ not in ["cc", "conj", "prep"]],
         key=lambda x: x.i,
     )
     return Span(token.doc, start=ent_subtree[0].i, end=ent_subtree[-1].i + 1)
@@ -516,15 +514,15 @@ def extract_ccs_from_token_at_root(span):
 def extract_ccs_from_token(token):
     if token.pos_ in ["NOUN", "PROPN", "ADJ"]:
         children = sorted(
-            [token] + [
-                c for c in token.children
+            [token]
+            + [
+                c
+                for c in token.children
                 if c.dep_ in ["advmod", "amod", "det", "poss", "compound"]
             ],
             key=lambda x: x.i,
         )
-        entities = [
-            Span(token.doc, start=children[0].i, end=children[-1].i + 1)
-        ]
+        entities = [Span(token.doc, start=children[0].i, end=children[-1].i + 1)]
     else:
         entities = [Span(token.doc, start=token.i, end=token.i + 1)]
     for c in token.children:
@@ -536,7 +534,7 @@ def extract_ccs_from_token(token):
 def find_verb_subject(v):
     """
     Returns the nsubj, nsubjpass of the verb. If it does not exist and the root is a head,
-    find the subject of that verb instead. 
+    find the subject of that verb instead.
     """
     if v.dep_ in ["nsubj", "nsubjpass", "nsubj:pass"]:
         return v

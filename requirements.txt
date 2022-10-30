@@ -1,2 +1,5 @@
 pony==0.7.13
 more_itertools
+abbreviations
+flytekit
+tqdm

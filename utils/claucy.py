@@ -9,7 +9,6 @@ Clausie as a spacy library
 """
 
 import spacy
-import pyinflect
 import logging
 import typing
 
@@ -240,26 +239,6 @@ class Clause:
             self.adverbials,
         )
 
-    @property
-    def text(self):
-        adverbials = [str(elem) for elem in self.adverbials]
-        text = " ".join(
-            [
-                str(elem)
-                for elem in [
-                    self.subject,
-                    self.verb,
-                    self.indirect_object,
-                    self.direct_object,
-                    self.complement,
-                    *adverbials,
-                    ".",
-                ]
-                if elem is not None
-            ]
-        )
-        return text.capitalize()
-
     def to_propositions(
         self, as_text: bool = False, inflect: str = "VBD", capitalize: bool = False
     ):
@@ -450,8 +429,11 @@ def _find_matching_child(root, allowed_types):
 
 
 def extract_clauses(span):
+    clauses = []
+
     verb_chunks = _get_verb_chunks(span)
     for verb in verb_chunks:
+
         subject = _get_subject(verb)
         if not subject:
             continue
@@ -463,7 +445,7 @@ def extract_clauses(span):
             if c.dep_ == "appos":
                 complement = extract_span_from_entity(c)
                 clause = Clause(subject=subject, complement=complement)
-                yield clause
+                clauses.append(clause)
 
         indirect_object = _find_matching_child(verb.root, ["dative"])
         direct_object = _find_matching_child(verb.root, ["dobj"])
@@ -484,13 +466,14 @@ def extract_clauses(span):
             complement=complement,
             adverbials=adverbials,
         )
-        yield clause
+        clauses.append(clause)
+    return clauses
 
 
 @spacy.Language.component("claucy")
 def extract_clauses_doc(doc):
     for sent in doc.sents:
-        clauses = list(extract_clauses(sent))
+        clauses = extract_clauses(sent)
         sent._.clauses = clauses
         doc._.clauses += clauses
     return doc
@@ -567,21 +550,31 @@ def find_verb_subject(v):
 
 
 def sentences_to_clauses(records, name="conclusions"):
-    prefixes = ["conclusions", "conclusion"]
     nlp = spacy.load("en_core_web_trf")
     add_to_pipe(nlp)
     for record in records:
         data = {"id": record.id, "ne": record.named_entities}
-        text = record.conclusion
+        text = record.conclusions
         if text is None:
             continue
-        for prefix in prefixes:
-            if text.lower().startswith(prefix):
-                text = text[len(prefix) :]
-        text = text.strip()
-
         doc = nlp(text)
         for clause in doc._.clauses:
-            elem = {"clause": clause}
-            elem.update(**data)
-            yield elem
+            data["clause"] = clause
+            yield data
+
+
+if __name__ == "__main__":
+    import spacy
+
+    nlp = spacy.load("en")
+    add_to_pipe(nlp)
+
+    doc = nlp(
+        # "Chester is a banker by trade, but is dreaming of becoming a great dancer."
+        " A cat , hearing that the birds in a certain aviary were ailing dressed himself up as a physician , and , taking his cane and a bag of instruments becoming his profession , went to call on them ."
+    )
+
+    print(doc._.clauses)
+    for clause in doc._.clauses:
+        print(clause.to_propositions(as_text=True, capitalize=True))
+    print(doc[:].noun_chunks)
