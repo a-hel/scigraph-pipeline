@@ -1,4 +1,4 @@
-from typing import Callable, Generator, Optional, Dict, List
+from typing import Callable, Generator, Optional, Dict, List, Union
 from contextlib import contextmanager
 from enum import Enum
 
@@ -16,9 +16,9 @@ class PipelineStep:
         self,
         fn: Callable[[Generator], Generator],
         db: Optional["Database"],
-        upstream: "db.Entity" = None,
+        upstream: Optional["db.Entity"] = None,
         downstream: Optional["db.Entity"] = None,
-        name: str = None,
+        name: Optional[str] = None,
         func_args: dict = {},
     ):
         self.fn = fn
@@ -32,7 +32,7 @@ class PipelineStep:
         self.downstream = self._resolve_table_names(downstream)
         self.name = f"step_{name or self.fn.__name__}"
 
-    def _count_upstream_rows(self, mode):
+    def _count_upstream_rows(self, mode: RunModes) -> int:
         if mode == RunModes.ONCE:
             return 1
         if self.downstream is None:
@@ -42,7 +42,9 @@ class PipelineStep:
         )
         return n_elems
 
-    def _resolve_table_names(self, table_id):
+    def _resolve_table_names(
+        self, table_id: Optional[Union[str, List[str]]]
+    ) -> Union[None, "db.EntityMeta", List["db.EntityMeta"]]:
         if table_id is None:
             return None
         elif isinstance(table_id, str):
@@ -57,7 +59,13 @@ class PipelineStep:
         return table_id
 
     @contextmanager
-    def runner(self, mode, order_by=None, write=True):
+    def runner(
+        self,
+        mode: RunModes,
+        order_by: Optional[str] = None,
+        write: bool = True,
+        duplicates: str = "raise",
+    ) -> Generator:
         if write and not self.downstream:
             raise AttributeError(
                 "You must specify a downstream table if you want to write your results."
@@ -85,7 +93,9 @@ class PipelineStep:
             result = self.fn(data, **self.func_args)
             if write:
                 for elem in result:
-                    id_ = self.db.add_record(data=result, table=self.downstream)
+                    id_ = self.db.add_record(
+                        data=result, table=self.downstream, duplicates=duplicates
+                    )
                     elem.update({"id": id_})
                     yield elem
             else:
@@ -101,6 +111,7 @@ class PipelineStep:
         write: bool = True,
         mode: RunModes = RunModes.ALL,
         order_by: str = None,
+        duplicates: str = "raise",
     ):
         if not isinstance(mode, RunModes):
             try:
@@ -113,7 +124,9 @@ class PipelineStep:
         except AttributeError as e:
             logger.warning("Unable to count processable rows: %s" % e)
             n_elems = None
-        with self.runner(write=write, mode=mode, order_by=order_by) as run:
+        with self.runner(
+            write=write, mode=mode, order_by=order_by, duplicates=duplicates
+        ) as run:
             # result = run()
             for elem in tqdm(run(), total=n_elems, desc=self.name):
                 yield elem

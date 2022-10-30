@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 
 from typing import Optional
 
@@ -66,7 +67,7 @@ RETURN value
         """
         homedir = self.query(config_query % "dbms.directories.neo4j_home", out="list")
         importdir = self.query(config_query % "dbms.directories.import", out="list")
-        return os.path.join(homedir[0].value(), importdir[0].value())
+        return Path(os.path.join(homedir[0].value(), importdir[0].value()))
 
     def query(self, query, out="graph", **kwargs):
         output = {"graph": self._as_graph, "list": self._as_list}[out]

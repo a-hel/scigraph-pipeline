@@ -15,19 +15,29 @@ def stage_nodes(data):
         }
         yield {"concept_nodes": concept_data}
         all_nodes.sort(key=lambda x: x.matched.casefold())
-        for name, nodes in groupby(all_nodes, key=lambda x: x.matched.casefold()):
-            for node in nodes:
+        for name, nodes_ in groupby(all_nodes, key=lambda x: x.matched.casefold()):
+            synonym_data = None
+            synonym_edge = None
+
+            for node in nodes_:
+                if first_node.id == node.id:
+                    continue
                 synonym_data = {
+                    "node_id": node.id,
                     "cui": node.cui,
                     "name": node.matched.title(),
                     "_date_added": datetime.now(),
                 }
                 synonym_edge = {
-                    "id_left": node.id,
-                    "id_right": first_node.id,
+                    "node_id_left": node.id,
+                    "node_id_right": first_node.id,
+                    "name_left": node.preferred.title(),
+                    "name_right": node.matched.title(),
                     "_date_added": datetime.now(),
                 }
                 break
+            if synonym_data is None:
+                continue
             yield {"synonym_nodes": synonym_data, "synonym_edges": synonym_edge}
 
 

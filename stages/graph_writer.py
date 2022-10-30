@@ -4,6 +4,8 @@ import csv
 import tempfile
 from itertools import groupby
 from datetime import datetime
+from abc import ABC
+from pathlib import Path
 
 import more_itertools
 
@@ -15,17 +17,140 @@ from utils.logging import PipelineLogger
 logger = PipelineLogger("Neo4j")
 
 
+@lru_cache
+def _load_date() -> str:
+    date = datetime.now().strftime("%Y-%m-%d")
+    return date
+
+
+class GraphDBInterface(ABC):
+    name: str = None
+    props: list = None
+    stmt: str = None
+    source_table: str = None
+    label: str = None
+    data: dict = None
+
+    def format_data(self, record):
+        pass
+
+
+class ConceptNode(GraphDBInterface):
+    def __init__(self):
+        self.name = "Concept node"
+        self.props = ""
+        self.stmt = "MERGE (a:concept {datastring})"
+        self.data = {
+            "node_id": "row.node_id",
+            "cui": "row.cui",
+            "name": "row.name",
+            "date_added": _load_date(),
+        }
+        self.source_table = "concept_nodes"
+
+    def format_data(self, record) -> dict:
+        data = {
+            "node_id": record.node_id,
+            "cui": record.cui,
+            "name": record.name,
+            "_version": record._version,
+            "date_added": record._date_added,
+        }
+        return data
+
+
+class SynonymNode(GraphDBInterface):
+    def __init__(self):
+        self.name = "Synonym node"
+        self.props = ""
+        self.stmt = "MERGE (a:synonym {datastring})"
+        self.data = {
+            "node_id": "toInteger(row.node_id)",
+            "cui": "row.cui",
+            "name": "row.name",
+            "date_added": _load_date(),
+        }
+        self.source_table = "synonym_nodes"
+
+    def format_data(self, record) -> dict:
+        data = {
+            "node_id": record.node_id,
+            "cui": record.cui,
+            "name": record.name,
+            "_version": record._version,
+            "date_added": record._date_added,
+        }
+        return data
+
+
+class PredicateEdge(GraphDBInterface):
+    def __init__(self):
+        self.name = "Predicate edge"
+        self.data = {
+            "name": "row.name",
+            "doi": "row.doi",
+            "summary": "row.summary",
+            "conclusion": "row.conclusion",
+            "date_added": _load_date(),
+        }
+        self.source_table = "predicate_edges"
+        self.stmt = """
+    MATCH
+        (a:concept),
+        (b:concept) 
+    WHERE 
+        a.cui = row.cui_left AND 
+        b.cui = row.cui_right
+    MERGE 
+        (a)-[r:_VERB {datastring}]->(b)
+        
+        """
+
+    def format_data(self, record) -> dict:
+        data = {
+            "name": record.name,
+            "conclusion": record.conclusion,
+            "summary": record.summary,
+            "doi": record.doi,
+            "predicate": record.name,
+            "cui_left": record.cui_left,
+            "cui_right": record.cui_right,
+            "date_added": record._date_added,
+        }
+        return data
+
+
+class SynonymEdge(GraphDBInterface):
+    def __init__(self):
+        self.name = "Synonym edge"
+        self.data = {"date_added": _load_date()}
+        self.source_table = "synonym_edges"
+        self.stmt = """
+    MATCH
+        (a:synonym),
+        (b:concept) 
+    WHERE
+        a.node_id = toInteger(row.id_left) AND
+        b.node_id = toInteger(row.id_right)
+    MERGE 
+        (a)-[r:_SYN {datastring}]->(b)
+        """
+
+    def format_data(self, record) -> dict:
+        data = {
+            "id_left": record.id_left,
+            "id_right": record.id_right,
+            "name_left": record.name_left,
+            "name_right": record.name_right,
+            "date_added": record._date_added,
+        }
+        return data
+
+
 class GraphWriter:
     def __init__(self, db, graph_db):
         self.db = db
         self.graph_db = graph_db
-
-        self.elem_types = {
-            "concept_nodes": self.load_concept_nodes,
-            "synonym_nodes": self.load_synonym_nodes,
-            "predicate_edges": self.load_predicate_edges,
-            "synonym_edges": self.load_synonym_edges,
-        }
 
     def _format_value(self, val, quote="'"):
 
@@ -34,7 +159,7 @@ class GraphWriter:
             val = f"{quote}{val}{quote}"
         return val
 
-    def _serialize_props(self, data, quote=True):
+    def _serialize_props(self, data: dict, quote: bool = True) -> str:
         quote = "'" if quote else ""
         if not data:
             datastring = ""
@@ -46,121 +171,6 @@ class GraphWriter:
             ]
             datastring = " {%s}" % ", ".join(labels)
         return datastring
-
-    @property
-    @lru_cache
-    def _load_date(self):
-        date = datetime.now().strftime("%Y-%m-%d")
-        return date
-
-    def load_concept_nodes(self):
-        def format_data(record):
-            data = {
-                "node_id": record.node_id,
-                "cui": record.cui,
-                "name": record.name,
-                "_version": record._version,
-                "date_added": record._date_added,
-            }
-            return data
-
-        data = {
-            "node_id": "row.node_id",
-            "cui": "row.cui",
-            "name": "row.name",
-            "date_added": self._load_date,
-        }
-        datastring = self._serialize_props(data, quote=False)
-        source_table = "concept_nodes"
-        batch_stmt = f"MERGE (a:concept {datastring})"
-        columns = data.keys()
-        return source_table, batch_stmt, format_data, columns
-
-    def load_synonym_nodes(self):
-        def format_data(record):
-            data = {
-                "node_id": record.id,
-                "cui": record.cui,
-                "name": record.name,
-                "_version": record._version,
-                "date_added": record._date_added,
-            }
-            return data
-
-        data = {
-            "node_id": "row.node_id",
-            "cui": "row.cui",
-            "name": "row.name",
-            "date_added": self._load_date,
-        }
-        datastring = self._serialize_props(data, quote=False)
-        source_table = "synonym_nodes"
-        batch_stmt = f"MERGE (a:synonym {datastring})"
-        columns = data.keys()
-        return source_table, batch_stmt, format_data, columns
-
-    def load_predicate_edges(self):
-        def format_data(record):
-            data = {
-                "name": record.name,
-                "conclusion": record.conclusion,
-                "summary": record.summary,
-                "doi": record.doi,
-                "predicate": record.name,
-                "cui_left": record.cui_left,
-                "cui_right": record.cui_right,
-                "date_added": record._date_added,
-            }
-            return data
-
-        data = {
-            "name": "row.name",
-            "doi": "row.doi",
-            "summary": "row.summary",
-            "conclusion": "row.conclusion",
-            "date_added": self._load_date,
-        }
-        datastring = self._serialize_props(data, quote=False)
-        source_table = "synonym_nodes"
-        batch_stmt = f"""
-    MATCH
-        (a:concept),
-        (b:concept) 
-    WHERE 
-        a.cui = row.cui_left AND 
-        b.cui = row.cui_right
-    MERGE 
-        (a)-[r:_VERB {datastring}]->(b)
-    RETURN type(r)
-        """
-        columns = list(data.keys()) + ["cui_left", "cui_right"]
-        return source_table, batch_stmt, format_data, columns
-
-    def load_synonym_edges(self):
-        def format_data(record):
-            data = {
-                "id_left": record.id_left,
-                "id_right": record.id_right,
-                "date_added": record._date_added,
-            }
-            return data
-
-        data = {"date_added": self._load_date}
-        datastring = self._serialize_props(data, quote=False)
-        source_table = "synonym_nodes"
-        batch_stmt = f"""
-    MATCH
-        (a:synonym),
-        (b:concept) 
-    WHERE 
-        a.node_left = row.id_left
-        b.node_right = row.id_right
-    MERGE 
-        (a)-[r:_SYN {datastring}]->(b)
-    RETURN type(r)
-        """
-        columns = list(data.keys()) + ["id_left", "id_right"]
-        return source_table, batch_stmt, format_data, columns
 
     @db_session
     def add_edges(self, write=False, batch_size=10_000):
@@ -178,7 +188,7 @@ class GraphWriter:
         )
 
     @db_session
-    def add_synonyms(self, write=False, batch_size=10_000):
+    def add_synonyms(self, write=False, batch_size=5000):
         records = self.db.get_records("synonym_nodes")
         elem_type = "synonym_nodes"
         self.batch_load(
@@ -194,15 +204,16 @@ class GraphWriter:
         )
 
     @db_session
-    def add_synonyms_edges(self, write=False, batch_size=10_000):
+    def add_synonyms_edges(self, write=False, batch_size=200):
         records = self.db.get_records("synonym_edges")
         elem_type = "synonym_edges"
         self.batch_load(
             elem_type=elem_type, data=records, write=write, batch_size=batch_size
         )
 
-    def _load_batch(self, batch, elem_specs, temp_dir, write, importdiroffset):
-        source_table, batch_stmt, format_data, columns = elem_specs()
+    def _load_batch(
+        self, batch, db_interface: GraphDBInterface, temp_dir: Path, write: bool
+    ):
         with tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".csv",
@@ -211,19 +222,19 @@ class GraphWriter:
             newline=os.linesep,
             dir=temp_dir,
         ) as f:
-            temp_file = os.path.join(temp_dir, f.name)
+            temp_file = temp_dir / f.name
             logger.debug(f"Created temporary file at '{temp_file}'")
 
             writer = csv.writer(f, quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow(columns)
+            writer.writerow(db_interface.columns)
             for record in batch:
-                data = format_data(record)
-                row = [data[col] for col in columns]
+                data = db_interface.format_data(record)
+                row = [data[col] for col in db_interface.columns]
                 writer.writerow(row)
-        temp_file_relative = temp_file[importdiroffset + 1 :]
+        temp_file_relative = Path(*temp_file.parts[-2:])
         query = (
             f'LOAD CSV WITH HEADERS FROM "file:///{temp_file_relative}" AS row '
-            + batch_stmt
+            + db_interface.stmt
         )
         if write:
             result = self.graph_db.query(query, out="list")
@@ -231,27 +242,28 @@ class GraphWriter:
         else:
             print(query)
 
-    def batch_load(self, elem_type, data, write=True, batch_size=5000):
+    def batch_load(
+        self,
+        db_interface: GraphDBInterface,
+        data,
+        write: bool = True,
+        batch_size: int = 5000,
+    ):
         neo4j_import_dir = self.graph_db.import_dir
         logger.debug(f"Found import directory at '{neo4j_import_dir}'.")
-        try:
-            elem_specs = self.elem_types[elem_type]
-        except KeyError:
-            raise KeyError(
-                f"Invalid element type: '{elem_type}'. Allowed are '{', '.join(self.elem_types.keys())}'"
-            )
         with tempfile.TemporaryDirectory(dir=neo4j_import_dir) as temp_dir:
             for batch in more_itertools.ichunked(data, batch_size):
-                result = self._load_batch(
+                n_results = self._load_batch(
                     batch,
-                    elem_specs,
+                    db_interface,
                     temp_dir,
                     write,
                     importdiroffset=len(neo4j_import_dir),
                 )
                 logger.debug(
-                    f"Loaded {len(result or [])} new records (batch size = {batch_size})."
+                    f"Loaded {n_results or 'n/a'} new records (batch size = {batch_size})."
                 )
+                break
 
     def migrate(self, mode="Rebuild"):
         pass
