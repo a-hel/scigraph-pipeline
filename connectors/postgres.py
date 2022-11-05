@@ -162,10 +162,12 @@ class Database:
         elems = self._build_query(
             table=table, mode=mode, downstream=downstream, order_by=order_by
         )
+        print(elems.get_sql())
         try:
             yield from elems
         except TransactionIntegrityError:
             query = self.db.select(elems.get_sql())
+
             yield from query
 
     def get_unique_nodes(self):
@@ -216,8 +218,8 @@ class Database:
         last_id = self._add_record(data, self.named_entities, periodic_commit=100)
         return {"named_entity_id": last_id}
 
-    @staticmethod
-    def from_config(path="../config/dev.json", key="postgres"):
+    @classmethod
+    def from_config(cls, path="../config/dev.json", key="postgres"):
         with open(path, "r") as f:
             config = json.load(f)
         if key is not None:
@@ -225,4 +227,4 @@ class Database:
             logger.debug(f"Loaded Postgres config section {key} form file {path}.")
         else:
             logger.debug(f"Loaded Postgres config form file {path}.")
-        return Database(db, **config)
+        return cls(db, **config)

@@ -1,8 +1,9 @@
 import os
 import json
 from pathlib import Path
+from functools import lru_cache
 
-from typing import Optional
+from typing import Optional, Union, Dict
 
 from neo4j import GraphDatabase
 from pydantic import BaseModel, validator
@@ -36,11 +37,11 @@ class SynonymEdgeData(BaseModel):
 
 
 class GraphDB:
-    def __init__(self, **config):
-        self.username = config.get("username")
-        self.dbname = config.get("database")
-        self.host = config.get("host")
-        self.port = config.get("port")
+    def __init__(self, **config: Dict[str, Union[str, int]]) -> None:
+        self.username: str = config.get("username")
+        self.dbname: str = config.get("database")
+        self.host: str = config.get("host")
+        self.port: int = config.get("port")
         self.uri = "bolt://%s:%s/%s" % (self.host, self.port, self.dbname)
         # self.uri = "bolt://%s:%s" % (self.host, self.port)
         logger.debug("Connecting to %s" % self.uri)
@@ -51,15 +52,26 @@ class GraphDB:
         )
         with self.driver.session() as session:
             _ = session.run("match(n) return n;")
+        self._set_indices()
+
+    def _set_indices(self):
+        stmts = [
+            "CREATE INDEX concept_index_cui IF NOT EXISTS FOR (n:concept) ON (n.cui)",
+            "CREATE INDEX synonym_index_cui IF NOT EXISTS FOR (n:synonym) ON (n.cui)",
+            "CREATE INDEX predicate_index_doi IF NOT EXISTS FOR ()-[r:_VERB]-() ON (r.doi)",
+        ]
+        for stmt in stmts:
+            self.query(stmt)
 
     def _as_graph(self, res):
         return res.graph()
 
-    def _as_list(self, res):
+    def _as_list(self, res) -> list:
         return list(res)
 
     @property
-    def import_dir(self):
+    @lru_cache()
+    def import_dir(self) -> Path:
         config_query = """
 Call dbms.listConfig() YIELD name, value
 WHERE name='%s'

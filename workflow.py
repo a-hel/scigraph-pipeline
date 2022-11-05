@@ -121,21 +121,21 @@ def extract_triples_task(mode: str = "NEWER", write: bool = False) -> None:
 @task
 def add_to_staging_task(mode: str = "NEWER", write: bool = False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    st = PipelineStep(
+    sn = PipelineStep(
         fn=stage_nodes,
         db=db,
         upstream="nodes",
-        downstream=["concept_nodes", "synonym_nodes", "synonym_edges"],
+        downstream=["concept_nodes", "synonym_nodes"],  # , "synonym_edges"],
     )
-    elems = st.run_all(
+    elems = sn.run_all(
         mode=mode, write=write, order_by=["preferred", "matched"], duplicates="skip"
     )
     for elem in elems:
         pass
-    st = PipelineStep(
+    se = PipelineStep(
         fn=stage_edges, db=db, upstream="edges", downstream="predicate_edges"
     )
-    elems = st.run_all(mode=mode, write=write, duplicates="skip")
+    elems = se.run_all(mode=mode, write=write, duplicates="skip")
     for elem in elems:
         pass
 
@@ -147,9 +147,9 @@ def export_to_graph_task(mode: str = "NEWER", write: bool = False) -> None:
     # add_nodes(db, graph_db, write=write)
     graph_writer = GraphWriter(db=db, graph_db=graph_db)
     graph_writer.add_concepts(write=write)
-    # graph_writer.add_synonyms(write=write)
-    # graph_writer.add_predicates(write=write)
-    # graph_writer.add_synonyms_edges(write=write)
+    graph_writer.add_synonyms(write=write)
+    graph_writer.add_predicates(write=write)
+    graph_writer.add_synonyms_edges(write=write)
 
 
 verify_graph = ShellTask(

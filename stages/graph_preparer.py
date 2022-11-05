@@ -1,9 +1,12 @@
 from datetime import datetime
 
 from itertools import groupby
+from typing import Generator, Dict, List
+
+from custom_types import Records, DbTable
 
 
-def stage_nodes(data):
+def stage_nodes(data: Records) -> Generator[Dict[str, List[DbTable]], None, None]:
     for preferred, nodes in groupby(data, key=lambda x: x.preferred):
         all_nodes = list(set(nodes))
         first_node = all_nodes[0]
@@ -20,10 +23,7 @@ def stage_nodes(data):
             synonym_edge = None
 
             for node in nodes_:
-                if first_node.id == node.id:
-                    continue
                 synonym_data = {
-                    "node_id": node.id,
                     "cui": node.cui,
                     "name": node.matched.title(),
                     "_date_added": datetime.now(),
@@ -38,7 +38,7 @@ def stage_nodes(data):
                 break
             if synonym_data is None:
                 continue
-            yield {"synonym_nodes": synonym_data, "synonym_edges": synonym_edge}
+            yield {"synonym_nodes": synonym_data}  # , "synonym_edges": synonym_edge}
 
 
 def stage_edges(data):

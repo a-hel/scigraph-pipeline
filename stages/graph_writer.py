@@ -6,20 +6,27 @@ from itertools import groupby
 from datetime import datetime
 from abc import ABC
 from pathlib import Path
+from typing import List
+import shutil
 
 import more_itertools
 
 from connectors.neo4j import Node, Edge
-from pony.orm import commit, db_session, rollback
+from pony.orm import db_session
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
+from stages.utils import git_hash
 
 logger = PipelineLogger("Neo4j")
+
+DATEFORMAT: str = "%Y-%d-%m"
+DEBUG = False
+GIT_VERSION = git_hash()
 
 
 @lru_cache
 def _load_date() -> str:
-    date = datetime.now().strftime("%Y-%m-%d")
+    date = datetime.now().strftime(DATEFORMAT)
     return date
 
 
@@ -30,6 +37,7 @@ class GraphDBInterface(ABC):
     source_table: str = None
     label: str = None
     data: dict = None
+    columns: list = None
 
     def format_data(self, record):
         pass
@@ -39,63 +47,50 @@ class ConceptNodeIF(GraphDBInterface):
     def __init__(self):
         self.name = "Concept node"
         self.props = ""
-        self.stmt = "MERGE (a:concept {datastring}) return count(a)"
-        self.data = {
-            "node_id": "row.node_id",
-            "cui": "row.cui",
-            "name": "row.name",
-            "date_added": _load_date(),
-        }
+        self.stmt = f"""
+    MERGE (a:concept {{cui: row.cui}})
+        SET a.name = row.name
+        SET a.date_added = date("{_load_date()}")
+        SET a.version = row.version
+        """
         self.source_table = "concept_nodes"
-        self.columns = list(self.data.keys())
+        self.columns = ["cui", "name", "date_added", "version"]
 
     def format_data(self, record) -> dict:
         data = {
-            "node_id": record.node_id,
             "cui": record.cui,
             "name": record.name,
-            "_version": record._version,
-            "date_added": record._date_added,
+            "version": record._version or GIT_VERSION,
+            "date_added": record._date_added.strftime(DATEFORMAT),
         }
         return data
 
 
-class SynonymNode(GraphDBInterface):
+class SynonymNodeIF(GraphDBInterface):
     def __init__(self):
         self.name = "Synonym node"
-        self.props = ""
-        self.stmt = "MERGE (a:synonym {datastring})"
-        self.data = {
-            "node_id": "toInteger(row.node_id)",
-            "cui": "row.cui",
-            "name": "row.name",
-            "date_added": _load_date(),
-        }
+        self.stmt = f"""
+        MERGE (a:synonym {{cui: row.cui, name: row.name, date_added: date("{_load_date()}"), version: row.version}})
+        RETURN count(a)
+        """
         self.source_table = "synonym_nodes"
+        self.columns = ["cui", "name", "version"]
 
     def format_data(self, record) -> dict:
         data = {
-            "node_id": record.node_id,
             "cui": record.cui,
             "name": record.name,
-            "_version": record._version,
-            "date_added": record._date_added,
+            "version": record._version or GIT_VERSION,
+            "date_added": record._date_added.strftime(DATEFORMAT),
         }
         return data
 
 
-class PredicateEdge(GraphDBInterface):
+class PredicateEdgeIF(GraphDBInterface):
     def __init__(self):
         self.name = "Predicate edge"
-        self.data = {
-            "name": "row.name",
-            "doi": "row.doi",
-            "summary": "row.summary",
-            "conclusion": "row.conclusion",
-            "date_added": _load_date(),
-        }
         self.source_table = "predicate_edges"
-        self.stmt = """
+        self.stmt = f"""
     MATCH
         (a:concept),
         (b:concept) 
@@ -103,9 +98,25 @@ class PredicateEdge(GraphDBInterface):
         a.cui = row.cui_left AND 
         b.cui = row.cui_right
     MERGE 
-        (a)-[r:_VERB {datastring}]->(b)
+        (a)-[r:_VERB {{doi:row.doi}}]->(b)
+        SET r.name = row.name
+        SET r.summary = row.summary
+        SET r.conclusion = row.conclusion
+        SET r.date_added = date("{_load_date()}")
+        SET r.version = row.version
+    RETURN
+        count(r)
         
         """
+        self.columns = [
+            "name",
+            "conclusion",
+            "summary",
+            "doi",
+            "cui_left",
+            "cui_right",
+            "version",
+        ]
 
     def format_data(self, record) -> dict:
         data = {
@@ -113,43 +124,16 @@ class PredicateEdge(GraphDBInterface):
             "conclusion": record.conclusion,
             "summary": record.summary,
             "doi": record.doi,
-            "predicate": record.name,
             "cui_left": record.cui_left,
             "cui_right": record.cui_right,
-            "date_added": record._date_added,
-        }
-        return data
-
-
-class SynonymEdge(GraphDBInterface):
-    def __init__(self):
-        self.name = "Synonym edge"
-        self.data = {"date_added": _load_date()}
-        self.source_table = "synonym_edges"
-        self.stmt = """
-    MATCH
-        (a:synonym),
-        (b:concept) 
-    WHERE
-        a.node_id = toInteger(row.id_left) AND
-        b.node_id = toInteger(row.id_right)
-    MERGE 
-        (a)-[r:_SYN {datastring}]->(b)
-        """
-
-    def format_data(self, record) -> dict:
-        data = {
-            "id_left": record.id_left,
-            "id_right": record.id_right,
-            "name_left": record.name_left,
-            "name_right": record.name_right,
-            "date_added": record._date_added,
+            "date_added": record._date_added.strftime(DATEFORMAT),
+            "version": record._version or GIT_VERSION,
         }
         return data
 
 
 class GraphWriter:
-    def __init__(self, db, graph_db):
+    def __init__(self, db: "Database", graph_db: "GraphDatabase"):
         self.db = db
         self.graph_db = graph_db
 
@@ -158,9 +142,11 @@ class GraphWriter:
         if isinstance(val, str):
             val = val.replace("'", '"')
             val = f"{quote}{val}{quote}"
+        elif isinstance(val, datetime):
+            val = val.strftime(DATEFORMAT)
         return val
 
-    def _serialize_props(self, data: dict, quote: bool = True) -> str:
+    def x_serialize_props(self, data: dict, quote: bool = True) -> str:
         quote = "'" if quote else ""
         if not data:
             datastring = ""
@@ -173,12 +159,6 @@ class GraphWriter:
             datastring = " {%s}" % ", ".join(labels)
         return datastring
 
-    def add_edges(self, write=False, batch_size=10_000):
-        records = self.db.get_unique_edges()
-        self.batch_load_edges(
-            edge_type="_VERB", edges=records, batch_size=batch_size, write=write
-        )
-
     def _add_elems(self, db_interface, write=False, batch_size=5000):
         source_table = db_interface.source_table
         records = self.db.get_records(source_table)
@@ -190,29 +170,27 @@ class GraphWriter:
         interface = ConceptNodeIF()
         self._add_elems(db_interface=interface, write=write, batch_size=batch_size)
 
-    @db_session
     def add_synonyms(self, write=False, batch_size=5000):
-        records = self.db.get_records("synonym_nodes")
-        elem_type = "synonym_nodes"
-        self.batch_load(
-            elem_type=elem_type, data=records, write=write, batch_size=batch_size
-        )
+        interface = SynonymNodeIF()
+        self._add_elems(db_interface=interface, write=write, batch_size=batch_size)
 
-    @db_session
     def add_predicates(self, write=False, batch_size=200):
-        records = self.db.get_records("predicate_edges")
-        elem_type = "predicate_edges"
-        self.batch_load(
-            elem_type=elem_type, data=records, write=write, batch_size=batch_size
-        )
+        interface = PredicateEdgeIF()
+        self._add_elems(db_interface=interface, write=write, batch_size=batch_size)
 
-    @db_session
-    def add_synonyms_edges(self, write=False, batch_size=200):
-        records = self.db.get_records("synonym_edges")
-        elem_type = "synonym_edges"
-        self.batch_load(
-            elem_type=elem_type, data=records, write=write, batch_size=batch_size
-        )
+    def add_synonyms_edges(self, write=False, batch_size=0):
+        stmt = """
+    MATCH
+        (a:synonym),
+        (b:concept) 
+    WHERE
+        a.cui = b.cui
+    MERGE 
+        (a)-[r:_SYN ]->(b)
+    RETURN
+        count(r)"""
+        if write:
+            self.graph_db.query(stmt)
 
     def _load_batch(
         self, batch, db_interface: GraphDBInterface, temp_dir: Path, write: bool
@@ -235,16 +213,26 @@ class GraphWriter:
                 row = [data[col] for col in db_interface.columns]
                 writer.writerow(row)
         temp_file_relative = Path(*temp_file.parts[-2:])
-        datastring = self._serialize_props(db_interface.data, quote=False)
+        # datastring = self._serialize_props(db_interface.data, quote=False)
         query = (
             f'LOAD CSV WITH HEADERS FROM "file:///{temp_file_relative}" AS row '
-            + db_interface.stmt.format(datastring=datastring)
+            + db_interface.stmt
         )
+
+        if DEBUG:
+            shutil.copyfile(src=temp_file, dst=f"debug_{_load_date()}.csv")
         if write:
             result = self.graph_db.query(query, out="list")
             return result
         else:
-            print(query)
+            logger.info(query)
+
+    def _count_results(self, n_results: List["Record"]) -> str:
+        try:
+            n = "%d" % n_results[0].value()
+        except (IndexError, AttributeError):
+            n = "n/a"
+        return n
 
     def batch_load(
         self,
@@ -260,7 +248,7 @@ class GraphWriter:
             for batch in more_itertools.ichunked(data, batch_size):
                 n_results = self._load_batch(batch, db_interface, temp_dir_path, write)
                 logger.debug(
-                    f"Loaded {n_results or 'n/a'} new records (batch size = {batch_size})."
+                    f"Loaded {self._count_results(n_results)} new records (batch size = {batch_size})."
                 )
                 break
 

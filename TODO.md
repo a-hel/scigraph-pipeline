@@ -13,6 +13,7 @@
 [ ] Write docs
 [ ] Write tests
 [ ] Refactor
+[ ] Implement run modes in Neo4j writer
 
 ## Quality
 [ ] Remove special characters like (TM), (r)
