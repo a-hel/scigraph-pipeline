@@ -1,7 +1,6 @@
 """Database interface"""
 
 import json
-import logging
 from datetime import datetime
 from pony.orm import (
     commit,

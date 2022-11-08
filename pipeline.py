@@ -18,8 +18,8 @@ class PipelineStep:
         self,
         fn: PipelineFunc,
         db: Optional[Database],
-        upstream: Optional[DbTable] = None,
-        downstream: Optional[DbTable] = None,
+        upstream: Union[str, DbTable] = None,
+        downstream: Union[str, DbTable] = None,
         name: Optional[str] = None,
         func_args: dict = {},
     ):

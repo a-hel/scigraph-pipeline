@@ -9,11 +9,13 @@
 [ ] Check https://allenai.github.io/scispacy/ for faster NER
 [x] Write Neo4j integration
 [ ] Run end-to-end
-[ ] Write migration
+[x] Write migration
 [ ] Write docs
 [ ] Write tests
 [ ] Refactor
 [ ] Implement run modes in Neo4j writer
+[ ] Check "_REL" from `legacy/node_builder.py`
+[ ] Flyte-ready
 
 ## Quality
 [ ] Remove special characters like (TM), (r)

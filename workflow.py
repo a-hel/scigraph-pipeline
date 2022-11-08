@@ -1,8 +1,22 @@
+"""
+    Main Flyte workflow, from reading plain-text articles
+    to uploading them to the cloud.
+
+    Currently only runs locally, rework is needed to run in flyte
+    cluster.
+
+    Run with
+    ```
+    pyflyte run workflow.py:wf --mode ALL|NEW|FRESH|ONE --write True|False
+    ```
+
+    2022 Andreas Helfenstein
+"""
+
 import os
 from typing import List, Dict
 
 from dotenv import load_dotenv
-from tqdm import tqdm
 from flytekit import task, workflow
 from flytekit.extras.tasks.shell import OutputLocation, ShellTask
 
@@ -14,14 +28,11 @@ from stages.article_parser import load_article
 from stages.summarizer import summarize_articles
 from stages.abbreviation_finder import find_abbreviations
 from stages.sentence_simplyfier import simplify_sentences
-
 from stages.extract_ner import recognize_named_entities
 from stages.abbreviation_substituter import substitute_abbreviations
 from stages.triple_extractor import extract_triples
 from stages.graph_preparer import stage_nodes, stage_edges
 from stages.graph_writer import GraphWriter
-
-# from tests.test_database import run_tests
 
 from utils.logging import PipelineLogger
 
@@ -31,8 +42,7 @@ load_dotenv()
 
 
 @task
-def summarize_article_task(mode: str = "NEWER", write: bool = False) -> List[dict]:
-
+def summarize_article_task(mode: str = "NEWER", write: bool = False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
     ap = PipelineStep(
         fn=summarize_articles,
@@ -47,7 +57,7 @@ def summarize_article_task(mode: str = "NEWER", write: bool = False) -> List[dic
 
 
 @task
-def find_abbreviation_task(mode: str = "NEWER", write: bool = False) -> List[Dict]:
+def find_abbreviation_task(mode: str = "NEWER", write: bool = False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
     af = PipelineStep(
         fn=find_abbreviations,
@@ -62,7 +72,7 @@ def find_abbreviation_task(mode: str = "NEWER", write: bool = False) -> List[Dic
 
 
 @task
-def simplify_conclusions_task(mode: str = "NEWER", write: bool = False) -> List[Dict]:
+def simplify_conclusions_task(mode: str = "NEWER", write: bool = False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
     sf = PipelineStep(
         fn=simplify_sentences,
@@ -144,7 +154,6 @@ def add_to_staging_task(mode: str = "NEWER", write: bool = False) -> None:
 def export_to_graph_task(mode: str = "NEWER", write: bool = False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
     graph_db = GraphDB.from_config(path=os.getenv("CONFIG_PATH"), key="neo4j_staging")
-    # add_nodes(db, graph_db, write=write)
     graph_writer = GraphWriter(db=db, graph_db=graph_db)
     graph_writer.add_concepts(write=write)
     graph_writer.add_synonyms(write=write)
@@ -162,12 +171,26 @@ verify_graph = ShellTask(
 )
 
 
-@task
-def migrate_graph(mode: str = "NEWER", drop: bool = False) -> None:
-    source_db = GraphDB.from_config(path=os.getenv("CONFIG_PATH"), key="neo4j_staging")
-    target_db = GraphDB.from_config(
-        path=os.getenv("CONFIG_PATH"), key="neo4j_production"
-    )
+migrate_graph = ShellTask(
+    name="migrate_to_cloud",
+    debug=True,
+    script="""
+    TARGET_HOST=`{{cat $CONFIG_PATH | jq -r '.neo4j_production.host'}}`
+    TARGET_USER=`{{cat $CONFIG_PATH | jq -r '.neo4j_production.username'}}`
+    TARGET_PASS=`{{cat $CONFIG_PATH | jq -r '.neo4j_production.password'}}`
+    SOURCE_DB=`{{cat $CONFIG_PATH | jq -r '.neo4j_staging.database'}}`
+    $NEO4J_HOME/bin/neo4j stop && \
+    $NEO4J_HOME/bin/neo4j-admin copy --to-database=neo4jstaging --from-database=neo4j --force && \
+    $NEO4J_HOME/bin/neo4j-admin push-to-cloud \
+        --bolt-uri bolt+routing://$TARGET_HOST \
+        --database neo4jstaging \
+        --username $TARGET_USER \
+        --password $TARGET_PASS \
+        --overwrite && \
+    $NEO4J_HOME/bin/neo4j-admin copy --to-database=neo4jstaging --from-database=neo4j --force
+    
+    """,
+)
 
 
 @workflow
@@ -183,6 +206,7 @@ def wf(mode: str = "FRESH", write: bool = False) -> None:
     # staged = add_to_staging_task(mode=mode, write=write)
     graph = export_to_graph_task(mode=mode, write=write)
     # test_results = verify_graph()
+    # migration = migrate_graph()
 
     return None
 

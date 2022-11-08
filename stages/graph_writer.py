@@ -2,7 +2,6 @@ from functools import lru_cache
 import os
 import csv
 import tempfile
-from itertools import groupby
 from datetime import datetime
 from abc import ABC
 from pathlib import Path
@@ -11,9 +10,6 @@ import shutil
 
 import more_itertools
 
-from connectors.neo4j import Node, Edge
-from pony.orm import db_session
-from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
 from stages.utils import git_hash
 
@@ -146,19 +142,6 @@ class GraphWriter:
             val = val.strftime(DATEFORMAT)
         return val
 
-    def x_serialize_props(self, data: dict, quote: bool = True) -> str:
-        quote = "'" if quote else ""
-        if not data:
-            datastring = ""
-        else:
-            labels = [
-                f"{label}:{self._format_value(value, quote=quote)}"
-                for label, value in data.items()
-                if value is not None
-            ]
-            datastring = " {%s}" % ", ".join(labels)
-        return datastring
-
     def _add_elems(self, db_interface, write=False, batch_size=5000):
         source_table = db_interface.source_table
         records = self.db.get_records(source_table)
@@ -250,7 +233,3 @@ class GraphWriter:
                 logger.debug(
                     f"Loaded {self._count_results(n_results)} new records (batch size = {batch_size})."
                 )
-                break
-
-    def migrate(self, mode="Rebuild"):
-        pass

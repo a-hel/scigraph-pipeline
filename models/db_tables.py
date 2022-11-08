@@ -1,22 +1,19 @@
-from typing import List, Dict
 from datetime import datetime
 
 from pony.orm import (
     Database as PonyDatabase,
     Required,
     Optional,
-    commit,
     PrimaryKey,
     Set,
-    select,
-    db_session,
 )
 
-db = PonyDatabase()
+db: PonyDatabase = PonyDatabase()
+DB_SCHEMA: str = "SciGraphPipeline"
 
 
 class Article(db.Entity):
-    _table_ = ("SciGraphPipeline", "articles")
+    _table_ = (DB_SCHEMA, "articles")
     id = PrimaryKey(int, auto=True)
     doi = Required(str, index=True)
     uri = Required(str)
@@ -25,7 +22,7 @@ class Article(db.Entity):
 
 
 class Summary(db.Entity):
-    _table_ = ("SciGraphPipeline", "summaries")
+    _table_ = (DB_SCHEMA, "summaries")
     id = PrimaryKey(int, auto=True)
     article_id = Required(Article, reverse="summaries")
     summary = Required(str)
@@ -36,26 +33,15 @@ class Summary(db.Entity):
 
     nodes = Set("Node", reverse="summary_id")
     edges = Set("Edge", reverse="summary_id")
-    # conclusions = Set("Conclusion", reverse="summary_id", lazy=False)
     simple_conclusions = Set("SimpleConclusions", reverse="summary_id", lazy=False)
     simple_substituted_conclusions = Set(
         "SimpleSubstitutedConclusions", reverse="summary_id", lazy=False
     )
-    #    named_entities = Set("NamedEntity", reverse="summary_id")
     abbreviations = Set("Abbreviation", reverse="summary_id")
 
 
-# class Conclusion(db.Entity):
-#     _table_ = ("SciGraphPipeline", "conclusions")
-#     id = PrimaryKey(int, auto=True)
-#     summary_id = Required(Summary, reverse="conclusions")
-#     conclusion = Required(str)
-#     date_added = Required(datetime)
-#     simple_conclusions = Set("SimpleConclusions", reverse="conclusion_id", lazy=False)
-
-
 class Abbreviation(db.Entity):
-    _table_ = ("SciGraphPipeline", "abbreviations")
+    _table_ = (DB_SCHEMA, "abbreviations")
     id = PrimaryKey(int, auto=True)
     article_id = Optional(Article, reverse="abbreviations")
     summary_id = Optional(Summary, reverse="abbreviations")
@@ -65,7 +51,7 @@ class Abbreviation(db.Entity):
 
 
 class SimpleConclusions(db.Entity):
-    _table_ = ("SciGraphPipeline", "simple_conclusions")
+    _table_ = (DB_SCHEMA, "simple_conclusions")
     id = PrimaryKey(int, auto=True)
     summary_id = Required(Summary, reverse="simple_conclusions")
     conclusion = Required(str, lazy=False)
@@ -78,7 +64,7 @@ class SimpleConclusions(db.Entity):
 
 
 class SimpleSubstitutedConclusions(db.Entity):
-    _table_ = ("SciGraphPipeline", "simple_substituted_conclusions")
+    _table_ = (DB_SCHEMA, "simple_substituted_conclusions")
     id = PrimaryKey(int, auto=True)
     simple_conclusion_id = Required(
         SimpleConclusions, reverse="simple_substituted_conclusions"
@@ -91,7 +77,7 @@ class SimpleSubstitutedConclusions(db.Entity):
 
 
 class NamedEntity(db.Entity):
-    _table_ = ("SciGraphPipeline", "named_entities")
+    _table_ = (DB_SCHEMA, "named_entities")
     id = PrimaryKey(int, auto=True)
     ss_conclusion_id = Required(SimpleSubstitutedConclusions, reverse="named_entities")
     matched_term = Required(str)
@@ -101,7 +87,7 @@ class NamedEntity(db.Entity):
 
 
 class Node(db.Entity):
-    _table_ = ("SciGraphPipeline", "nodes")
+    _table_ = (DB_SCHEMA, "nodes")
     id = PrimaryKey(int, auto=True)
     summary_id = Required(Summary, reverse="nodes")
     cui = Required(str, unique=False)
@@ -111,7 +97,7 @@ class Node(db.Entity):
 
 
 class ConceptNode(db.Entity):
-    _table_ = ("SciGraphPipeline", "concept_nodes")
+    _table_ = (DB_SCHEMA, "concept_nodes")
     id = PrimaryKey(int, auto=True)
     node_id = Required(Node, reverse="concept_nodes")
     cui = Required(str, unique=True)
@@ -121,7 +107,7 @@ class ConceptNode(db.Entity):
 
 
 class SynonymNode(db.Entity):
-    _table_ = ("SciGraphPipeline", "synonym_nodes")
+    _table_ = (DB_SCHEMA, "synonym_nodes")
     id = PrimaryKey(int, auto=True)
     node_id = Required(int, unique=True)
     cui = Required(str)
@@ -131,7 +117,7 @@ class SynonymNode(db.Entity):
 
 
 class Edge(db.Entity):
-    _table_ = ("SciGraphPipeline", "edges")
+    _table_ = (DB_SCHEMA, "edges")
     id = PrimaryKey(int, auto=True)
     summary_id = Required(Summary, reverse="edges")
     predicate = Required(str)
@@ -141,7 +127,7 @@ class Edge(db.Entity):
 
 
 class PredicateEdge(db.Entity):
-    _table_ = ("SciGraphPipeline", "predicate_edges")
+    _table_ = (DB_SCHEMA, "predicate_edges")
     id = PrimaryKey(int, auto=True)
     edge_id = Required(Edge, reverse="predicate_edges")
     name = Required(str)
@@ -155,7 +141,7 @@ class PredicateEdge(db.Entity):
 
 
 class SynonymEdge(db.Entity):
-    _table_ = ("SciGraphPipeline", "synonym_edges")
+    _table_ = (DB_SCHEMA, "synonym_edges")
     id = PrimaryKey(int, auto=True)
     node_id_left = Required(int, unique=True)
     node_id_right = Required(int)
@@ -166,7 +152,7 @@ class SynonymEdge(db.Entity):
 
 
 class Log(db.Entity):
-    _table_ = ("SciGraphPipeline", "log")
+    _table_ = (DB_SCHEMA, "log")
     id = PrimaryKey(int, auto=True)
     table = Required(str)
     last_processed = Required(int)

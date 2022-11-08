@@ -1,14 +1,17 @@
 import os
 import csv
-from typing import Type
+from typing import List
 from lxml import etree
 
-import logging
+from utils.logging import PipelineLogger
+from custom_types import Records, RawRecords, PipelineFunc
+
+logger = PipelineLogger("SubstituteTask")
 
 from stages.utils import TarFileReader
 
 
-def _normalize_title(context, title):
+def _normalize_title(context, title: str) -> List[str]:
     try:
         title = title[0].lower()
     except IndexError:
@@ -149,11 +152,11 @@ def load_article(data):
         yield article
 
 
-def parse_articles(folder):
+def parse_articles(folder: str) -> PipelineFunc:
     # lookup = id_convert(os.path.join(os.getenv('ASSET_DIR'), "PMC-ids.csv"))
     lookup = {}
 
-    def step(data=None):
+    def step(data: Records) -> RawRecords:
         results = parse_from_folder(folder, lookup)
         yield from results
 
