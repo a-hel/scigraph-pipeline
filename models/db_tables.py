@@ -6,6 +6,7 @@ from pony.orm import (
     Optional,
     PrimaryKey,
     Set,
+    composite_key,
 )
 
 db: PonyDatabase = PonyDatabase()
@@ -131,13 +132,14 @@ class PredicateEdge(db.Entity):
     id = PrimaryKey(int, auto=True)
     edge_id = Required(Edge, reverse="predicate_edges")
     name = Required(str)
-    doi = Required(str, unique=True)
+    doi = Required(str)
     summary = Required(str)
     conclusion = Required(str)
     cui_left = Required(str)
     cui_right = Required(str)
     _version = Optional(str)
     _date_added = Required(datetime)
+    composite_key(doi, cui_left, cui_right)
 
 
 class SynonymEdge(db.Entity):

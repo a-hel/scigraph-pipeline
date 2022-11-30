@@ -7,7 +7,12 @@ from pony.orm import (
     select,
     db_session,
 )
-from pony.orm.core import EntityMeta, CacheIndexError, TransactionIntegrityError
+from pony.orm.core import (
+    EntityMeta,
+    CacheIndexError,
+    TransactionIntegrityError,
+    DBSessionContextManager,
+)
 
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
@@ -69,6 +74,10 @@ class Database:
         self.synonym_edges = SynonymEdge
         self.logs = Log
         logger.debug(f"Connected to database:\t{user}@{host}:{port}/{database}")
+
+    @property
+    def session_handler(self):
+        return DBSessionContextManager()
 
     # def __del__(self):
     #    self.db.disconnect()
@@ -154,19 +163,17 @@ class Database:
                 query = query.order_by(column)
         return query
 
-    @db_session
+    # @db_session
     def get_records(
         self, table, mode: RunModes = RunModes.ALL, downstream=None, order_by=None
     ):
         elems = self._build_query(
             table=table, mode=mode, downstream=downstream, order_by=order_by
         )
-        print(elems.get_sql())
         try:
             yield from elems
         except TransactionIntegrityError:
             query = self.db.select(elems.get_sql())
-
             yield from query
 
     def get_unique_nodes(self):
@@ -179,7 +186,7 @@ class Database:
         edges = select(e for e in self.edges)
         yield from edges
 
-    @db_session
+    # @db_session
     def count_records(self, table, mode, downstream=None):
         query = self._build_query(
             table=table, mode=mode, downstream=downstream, order_by=None

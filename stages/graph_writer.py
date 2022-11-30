@@ -9,13 +9,14 @@ from typing import List
 import shutil
 
 import more_itertools
+from pony.orm import db_session
 
 from utils.logging import PipelineLogger
 from stages.utils import git_hash
 
 logger = PipelineLogger("Neo4j")
 
-DATEFORMAT: str = "%Y-%d-%m"
+DATEFORMAT: str = "%Y-%m-%d"
 DEBUG = False
 GIT_VERSION = git_hash()
 
@@ -143,11 +144,15 @@ class GraphWriter:
         return val
 
     def _add_elems(self, db_interface, write=False, batch_size=5000):
-        source_table = db_interface.source_table
-        records = self.db.get_records(source_table)
-        self.batch_load(
-            db_interface=db_interface, data=records, write=write, batch_size=batch_size
-        )
+        with self.db.session_handler():
+            source_table = db_interface.source_table
+            records = self.db.get_records(source_table)
+            self.batch_load(
+                db_interface=db_interface,
+                data=records,
+                write=write,
+                batch_size=batch_size,
+            )
 
     def add_concepts(self, write=False, batch_size=5000):
         interface = ConceptNodeIF()

@@ -17,7 +17,7 @@ import os
 from typing import List, Dict
 
 from dotenv import load_dotenv
-from flytekit import task, workflow
+from flytekit import task, workflow, kwtypes
 from flytekit.extras.tasks.shell import OutputLocation, ShellTask
 
 from connectors.postgres import Database
@@ -174,22 +174,8 @@ verify_graph = ShellTask(
 migrate_graph = ShellTask(
     name="migrate_to_cloud",
     debug=True,
-    script="""
-    TARGET_HOST=`{{cat $CONFIG_PATH | jq -r '.neo4j_production.host'}}`
-    TARGET_USER=`{{cat $CONFIG_PATH | jq -r '.neo4j_production.username'}}`
-    TARGET_PASS=`{{cat $CONFIG_PATH | jq -r '.neo4j_production.password'}}`
-    SOURCE_DB=`{{cat $CONFIG_PATH | jq -r '.neo4j_staging.database'}}`
-    $NEO4J_HOME/bin/neo4j stop && \
-    $NEO4J_HOME/bin/neo4j-admin copy --to-database=neo4jstaging --from-database=neo4j --force && \
-    $NEO4J_HOME/bin/neo4j-admin push-to-cloud \
-        --bolt-uri bolt+routing://$TARGET_HOST \
-        --database neo4jstaging \
-        --username $TARGET_USER \
-        --password $TARGET_PASS \
-        --overwrite && \
-    $NEO4J_HOME/bin/neo4j-admin copy --to-database=neo4jstaging --from-database=neo4j --force
-    
-    """,
+    script="""bash ./stages/migrate_db.sh --write {inputs.write} --mode {inputs.mode}""",
+    inputs=kwtypes(write=bool, mode=str),
 )
 
 
@@ -204,9 +190,9 @@ def wf(mode: str = "FRESH", write: bool = False) -> None:
     # ners = extract_named_entities_task(mode=mode, write=write)
     # triples = extract_triples_task(mode=mode, write=write)
     # staged = add_to_staging_task(mode=mode, write=write)
-    graph = export_to_graph_task(mode=mode, write=write)
+    # graph = export_to_graph_task(mode=mode, write=write)
     # test_results = verify_graph()
-    # migration = migrate_graph()
+    migration = migrate_graph(mode=mode, write=write)
 
     return None
 

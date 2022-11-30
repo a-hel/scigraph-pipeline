@@ -4,6 +4,7 @@ from enum import Enum
 
 from tqdm import tqdm
 from pony.orm import db_session  # TODO: factor out somehow
+from pony.orm.core import TransactionError
 
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
@@ -82,13 +83,14 @@ class PipelineStep:
                     order_by=order_by,
                 )
             yield from run(all_data)
+            # yield from run(all_data)
 
         def run_one(id: int) -> Generator[dict, None, None]:
             if self.upstream:
                 data = self.db.get_by_id(table=self.upstream, id=id)
             yield from run(data)
 
-        @db_session
+        # @db_session
         def run(data: Records) -> Generator[dict, None, None]:
             logger.info(f"Running step {self.name} (write = {write})")
             # logger.debug(f"{self.upstream._table_[-1]} -> {self.downstream._table_[-1]}")
@@ -121,17 +123,18 @@ class PipelineStep:
             except KeyError:
                 msg = f"Unknown mode '{mode}'. Allowed values are {', '.join(RunModes.__members__.keys())}"
                 raise KeyError(msg)
-        try:
-            n_elems = self._count_upstream_rows(mode=mode)
-        except AttributeError as e:
-            logger.warning("Unable to count processable rows: %s" % e)
-            n_elems = None
-        with self.runner(
-            write=write, mode=mode, order_by=order_by, duplicates=duplicates
-        ) as run:
-            # result = run()
-            for elem in tqdm(run(), total=n_elems, desc=self.name):
-                yield elem
+        with self.db.session_handler():
+            try:
+                n_elems = self._count_upstream_rows(mode=mode)
+            except AttributeError as e:
+                logger.warning("Unable to count processable rows: %s" % e)
+                n_elems = None
+            with self.runner(
+                write=write, mode=mode, order_by=order_by, duplicates=duplicates
+            ) as run:
+                # result = run()
+                for elem in tqdm(run(), total=n_elems, desc=self.name):
+                    yield elem
 
     def run_once(self, id: int, write: bool = True) -> dict:
 
