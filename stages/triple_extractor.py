@@ -1,79 +1,98 @@
 from itertools import product
 from logging import Logger
 import spacy
+import networkx as nx
 
 from .spacy_pipeline import claucy, information_extractor  # noqa
 
 logger = Logger(__name__)
 
 
-def _extract_triples(records, nlp):
-    for record in records:
-        data = {
-            "id": record.simple_substituted_conclusions.id,
-            "summary_id": record.id,
-            "ne": record.simple_substituted_conclusions.named_entities,
-        }
-        texts = record.simple_substituted_conclusions.conclusion
-        # if texts.is_empty():
-        #    continue
-        for text in texts:
-            break
-        doc = nlp(text)
-        for clause, triple in zip(doc._.clauses, doc._.triples):
-            if triple is None:
+def triples_to_graph(triples) -> nx.Graph:
+    G = nx.DiGraph()
+    for triple in triples:
+        subjects = triple.subject
+        for subject in subjects.ents:
+            G.add_node(subject, node_type="concept", label=subject.text)
+        ordered_ents = subjects.ents.copy() # TODO check that dependency tree is correct
+        ordered_ents.reverse()
+        for i in range(len(ordered_ents)):
+            if i == 0:
                 continue
-            elem = {"clause": clause, "triple": triple}
-            elem.update(**data)
-            yield elem
-
+            G.add_edge(ordered_ents[i-1], ordered_ents[i], edge_type="_REL")
+        objects = triple.object_
+        for object_ in objects.ents:
+            G.add_node(object_, node_type="concept")
+            G.add_edge(object_, subjects.ents[-1], edge_type="_VERB", name=triple.verb.text)
+    return G
 
 def _match_terms(records, nlp, name="conclusions"):
-    for elem in _extract_triples(records, nlp):
-        ne = elem["ne"]
-        summary_id = elem["summary_id"]
-        if not ne:
+    linker = nlp.get_pipe("scispacy_linker")
+    for record in records:
+        doi = record.summary_id.article_id.doi
+        doc = nlp(record.conclusion)
+        if not doc._.triples:
             continue
-        matches = elem["triple"].match(ne)
-        if matches is None:
-            continue
-        matches_left, verb, matches_right = matches
-        if not all([matches_left, verb, matches_right]):
-            continue
-        nodes_left = [
-            {
-                "summary_id": summary_id,
-                "cui": match_left.cui,
-                "matched": match_left.matched_term,
-                "preferred": match_left.preferred_term,
-            }
-            for match_left in matches_left
-        ]
-        nodes_right = [
-            {
-                "summary_id": summary_id,
-                "cui": match_right.cui,
-                "matched": match_right.matched_term,
-                "preferred": match_right.preferred_term,
-            }
-            for match_right in matches_right
-        ]
-        edges = (
-            {
-                "summary_id": summary_id,
-                "predicate": " ".join(verb),
-                "cui_left": match_left.cui,
-                "cui_right": match_right.cui,
-            }
-            for match_left, match_right in product(matches_left, matches_right)
-        )
+        staging_graph = triples_to_graph(doc._.triples)
+        graph_nodes = list(staging_graph.nodes)
+        node_objs = _to_nodes(graph_nodes, linker)
+        graph_edges = list(staging_graph.edges(data=True))
+        edge_objs = _to_edges(graph_edges, record, doi)
+        yield {"nodes": node_objs, "edges": edge_objs}
 
-        yield {"nodes": nodes_left + nodes_right, "edges": edges}
+def _predicate_edge(start, end, data, record, doi):
+    for start_cui, _ in start._.kb_ents:
+            for end_cui, _ in end._.kb_ents:
+                edge_data = {"cui_left": start_cui, "cui_right": end_cui, "name": data['name'],
+                "doi": doi, "conclusion": record.conclusion, "summary": record.summary_id.summary, "type": data['edge_type']}
+                yield edge_data
+
+def _relational_edge(start, end, data, record, doi):
+    for start_cui, _ in start._.kb_ents:
+        for end_cui, _ in end._.kb_ents:
+                edge_data = {"cui_left": start_cui, "cui_right": end_cui,
+                "doi": doi, "type": data['edge_type']}
+                yield edge_data
+def _synonym_edge(start, end, data):
+    for _ in range(1):
+        edge_data = {"name_left": start.text, "name_right": end.text,
+                "type": data['edge_type']}
+        yield edge_data
+        
+def _to_edges(graph_edges, record, doi):
+    converters = {"_VERB": _predicate_edge,
+    "_REL": _relational_edge,
+    "_SYN": _synonym_edge}
+    for start, end, data in graph_edges:
+        converter = converters[data["edge_type"]]
+        yield from converter(start, end, data, record, doi)
+        
 
 
-def extract_triples(summaries):
-    nlp = spacy.load("en_core_web_trf")
+def _to_nodes(graph_nodes, linker):
+    for node in graph_nodes:
+            for concept in node._.kb_ents:
+                cui = concept[0]
+                node_data = linker.kb.cui_to_entity[cui]
+                node = {
+                    "canonical_name": node_data.canonical_name,
+                    "cui": node_data.concept_id,
+                    "definition": node_data.definition,
+                    "type": "concept"
+                    }
+                alias_edges = [(node_data.canonical_name, alias) for alias in node_data.aliases]
+                yield node
+
+
+
+def extract_triples(summaries, spacy_model="en_core_sci_scibert"):
+    allowed_models = ["en_core_sci_sm", "en_core_sci_md", "en_core_sci_lg", "en_core_sci_scibert"]
+    if spacy_model not in allowed_models:
+        raise ValueError(f"Model '{spacy_model}' is not applicable for this task." +
+        f"Allowed models are: '{', '.join(allowed_models)}'.")
+    nlp = spacy.load(spacy_model)
     nlp.add_pipe("claucy")
     nlp.add_pipe("InformationExtractor", after="claucy")
-    logger.debug("NLP loaded")
+    nlp.add_pipe("scispacy_linker", config={"resolve_abbreviations": False, "linker_name": "umls", "max_entities_per_mention": 1})
+    logger.info(f"NLP loaded, using model '{spacy_model}'.")
     yield from _match_terms(summaries, nlp)

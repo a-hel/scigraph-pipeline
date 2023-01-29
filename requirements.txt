@@ -2,4 +2,7 @@ pony==0.7.13
 more_itertools
 abbreviations
 flytekit
+networkx
 tqdm
+scispacy
+https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.1/en_core_sci_scibert-0.5.1.tar.gz
