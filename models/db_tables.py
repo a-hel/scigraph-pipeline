@@ -6,6 +6,7 @@ from pony.orm import (
     Optional,
     PrimaryKey,
     Set,
+    Json,
     composite_key,
 )
 
@@ -91,9 +92,9 @@ class Node(db.Entity):
     _table_ = (DB_SCHEMA, "nodes")
     id = PrimaryKey(int, auto=True)
     summary_id = Required(Summary, reverse="nodes")
-    cui = Required(str, unique=False)
-    matched = Optional(str)
-    preferred = Required(str)
+    node_type = Required(str, unique=False)
+    cui_or_name = Required(str, unique=False)
+    attributes = Required(Json)
     concept_nodes = Set("ConceptNode", reverse="node_id")
 
 
@@ -123,9 +124,10 @@ class Edge(db.Entity):
     _table_ = (DB_SCHEMA, "edges")
     id = PrimaryKey(int, auto=True)
     summary_id = Required(Summary, reverse="edges")
-    predicate = Required(str)
-    cui_left = Required(str)
-    cui_right = Required(str)
+    node_left = Required(str)
+    node_right = Required(str)
+    edge_type = Required(str)
+    attributes = Required(Json)
     predicate_edges = Set("PredicateEdge", reverse="edge_id")
 
 

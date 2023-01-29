@@ -91,7 +91,9 @@ class Database:
             try:
                 last_record = table(**elem)
             except TypeError as e:
+                print("***")
                 print(elem)
+                print(f"***{table}***")
                 raise (e)
             if not e % periodic_commit:
                 # logging.debug("Processing %s: %s" % (e, last_record))
@@ -116,7 +118,8 @@ class Database:
                         filtered_records = [elem[tbl._table_[-1]]]
                     except KeyError:
                         continue
-                    last_id = self._add_record(filtered_records, tbl, periodic_commit)
+                    for filtered_record in filtered_records:
+                        last_id = self._add_record(filtered_record, tbl, periodic_commit)
             return last_id
         raise TypeError("Expected table, name, or dict  got %s" % type(table))
 

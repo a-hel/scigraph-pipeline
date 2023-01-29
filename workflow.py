@@ -15,7 +15,6 @@ from stages.summarizer import summarize_articles
 from stages.abbreviation_finder import find_abbreviations
 from stages.sentence_simplyfier import simplify_sentences
 
-from stages.extract_ner import recognize_named_entities
 from stages.abbreviation_substituter import substitute_abbreviations
 from stages.triple_extractor import extract_triples
 from stages.graph_preparer import stage_nodes, stage_edges
@@ -90,18 +89,7 @@ def substitute_abbreviation_task(mode: str = "NEWER", write: bool = False) -> No
         pass
 
 
-@task
-def extract_named_entities_task(mode: str = "NEWER", write: bool = False) -> None:
-    db = Database.from_config(path=os.getenv("CONFIG_PATH"))
-    ne = PipelineStep(
-        fn=recognize_named_entities,
-        db=db,
-        upstream="simple_substituted_conclusions",
-        downstream="named_entities",
-    )
-    named_entities = ne.run_all(mode=mode, write=write)
-    for named_entity in named_entities:
-        pass
+
 
 
 @task
@@ -110,7 +98,7 @@ def extract_triples_task(mode: str = "NEWER", write: bool = False) -> None:
     tr = PipelineStep(
         fn=extract_triples,
         db=db,
-        upstream="summaries",
+        upstream="simple_substituted_conclusions",
         downstream=["nodes", "edges"],
     )
     triples = tr.run_all(mode=mode, write=write)
@@ -176,10 +164,9 @@ def wf(mode: str = "FRESH", write: bool = False) -> None:
     # abbrevs = find_abbreviation_task(mode=mode, write=write)
     # simple_conclusions = simplify_conclusions_task(mode=mode, write=write)
     # subs = substitute_abbreviation_task(mode=mode, write=write)
-    # ners = extract_named_entities_task(mode=mode, write=write)
-    # triples = extract_triples_task(mode=mode, write=write)
+    triples = extract_triples_task(mode=mode, write=write)
     # staged = add_to_staging_task(mode=mode, write=write)
-    graph = export_to_graph_task(mode=mode, write=write)
+    #graph = export_to_graph_task(mode=mode, write=write)
     # test_results = verify_graph()
 
     return None

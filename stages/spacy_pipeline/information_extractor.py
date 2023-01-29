@@ -130,7 +130,7 @@ class InformationExtractor:
         if not hasattr(doc._, "clauses"):
             raise AttributeError("This pipeline step must be run after claucy.")
         if doc._.clauses is None:
-            doc._.triples = None
+            doc._.triples = []
             return doc
         doc._.triples = [triple for triple in self.extract_triples(doc._.clauses)]
         return doc

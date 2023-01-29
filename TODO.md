@@ -13,6 +13,6 @@
 [ ] Write docs
 [ ] Write tests
 [ ] Refactor
-
+[ ] pip install --no-binary :all: nmslib
 ## Quality
 [ ] Remove special characters like (TM), (r)
