@@ -7,7 +7,6 @@ from datetime import datetime
 
 import more_itertools
 
-from connectors.neo4j import Node, Edge
 from pony.orm import db_session
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
@@ -24,7 +23,7 @@ class GraphWriter:
             "concept_nodes": self.load_concept_nodes,
             "synonym_nodes": self.load_synonym_nodes,
             "predicate_edges": self.load_predicate_edges,
-            "synonym_edges": self.load_synonym_edges,
+            "relational_edges": self.load_rel_edges,
         }
 
     def _format_value(self, val, quote="'"):
@@ -55,35 +54,34 @@ class GraphWriter:
 
     def load_concept_nodes(self):
         def format_data(record):
+            attr = record.attributes
             data = {
-                "node_id": record.node_id,
-                "cui": record.cui,
-                "name": record.name,
-                "_version": record._version,
-                "date_added": record._date_added,
+                "node_id": record.id,
+                "cui": record.cui_or_name,
+                "name": attr["canonical_name"],
+                "definition": attr["definition"],
             }
+
             return data
 
         data = {
             "node_id": "row.node_id",
             "cui": "row.cui",
             "name": "row.name",
+            "definition": "row.definition",
             "date_added": self._load_date,
         }
         datastring = self._serialize_props(data, quote=False)
-        source_table = "concept_nodes"
         batch_stmt = f"MERGE (a:concept {datastring})"
-        columns = data.keys()
-        return source_table, batch_stmt, format_data, columns
+        columns = ["node_id", "cui", "name", "definition"]
+        return batch_stmt, format_data, columns
 
     def load_synonym_nodes(self):
         def format_data(record):
             data = {
                 "node_id": record.id,
-                "cui": record.cui,
-                "name": record.name,
-                "_version": record._version,
-                "date_added": record._date_added,
+                "cui": record.cui_or_name,
+                "name": record.attributes["synonym"],
             }
             return data
 
@@ -94,34 +92,33 @@ class GraphWriter:
             "date_added": self._load_date,
         }
         datastring = self._serialize_props(data, quote=False)
-        source_table = "synonym_nodes"
         batch_stmt = f"MERGE (a:synonym {datastring})"
-        columns = data.keys()
-        return source_table, batch_stmt, format_data, columns
+        columns = ["node_id", "cui", "name"]
+        return batch_stmt, format_data, columns
 
     def load_predicate_edges(self):
         def format_data(record):
+            attr = record.attributes
             data = {
-                "name": record.name,
-                "conclusion": record.conclusion,
-                "summary": record.summary,
-                "doi": record.doi,
-                "predicate": record.name,
-                "cui_left": record.cui_left,
-                "cui_right": record.cui_right,
-                "date_added": record._date_added,
+                "name": attr["name"],
+                "conclusion": attr["conclusion"],
+                "summary": attr["summary"],
+                "doi": attr["doi"],
+                "predicate": attr["name"],
+                "cui_left": record.node_left,
+                "cui_right": record.node_right,
             }
             return data
 
         data = {
             "name": "row.name",
             "doi": "row.doi",
+            "predicate": "row.predicate",
             "summary": "row.summary",
             "conclusion": "row.conclusion",
             "date_added": self._load_date,
         }
         datastring = self._serialize_props(data, quote=False)
-        source_table = "synonym_nodes"
         batch_stmt = f"""
     MATCH
         (a:concept),
@@ -133,76 +130,78 @@ class GraphWriter:
         (a)-[r:_VERB {datastring}]->(b)
     RETURN type(r)
         """
-        columns = list(data.keys()) + ["cui_left", "cui_right"]
-        return source_table, batch_stmt, format_data, columns
+        columns = [
+            "cui_left",
+            "cui_right",
+            "name",
+            "doi",
+            "predicate",
+            "summary",
+            "conclusion",
+        ]
+        return batch_stmt, format_data, columns
 
-    def load_synonym_edges(self):
+    def load_rel_edges(self):
         def format_data(record):
             data = {
-                "id_left": record.id_left,
-                "id_right": record.id_right,
-                "date_added": record._date_added,
+                "cui_left": record.node_left,
+                "cui_right": record.node_right,
+                "doi": record.attributes["doi"],
             }
             return data
 
-        data = {"date_added": self._load_date}
+        data = {"date_added": self._load_date, "doi": "row.doi"}
         datastring = self._serialize_props(data, quote=False)
-        source_table = "synonym_nodes"
         batch_stmt = f"""
+    MATCH
+        (a:concept),
+        (b:concept) 
+    WHERE 
+        a.cui = row.cui_left AND 
+        b.cui = row.cui_right
+    MERGE 
+        (a)-[r:_REL {datastring}]->(b)
+    RETURN type(r)
+        """
+        columns = ["cui_left", "cui_right", "doi"]
+        return batch_stmt, format_data, columns
+
+    @db_session
+    def add_edges(self, write=False, batch_size=10_000):
+        elem_types = {"_VERB": "predicate_edges", "_REL": "relational_edges"}
+        records = self.db.get_records("edges", order_by="edge_type")
+        for group, recs in groupby(records, key=lambda x: x.edge_type):
+            elem_type = elem_types[group]
+            self.batch_load(
+                elem_type=elem_type, data=recs, write=write, batch_size=batch_size
+            )
+        self.add_synonyms_edges()
+
+    @db_session
+    def add_nodes(self, write=False, batch_size=10_000):
+        elem_types = {"concept": "concept_nodes", "synonym": "synonym_nodes"}
+        records = self.db.get_records("nodes", order_by="node_type")
+        for group, recs in groupby(records, key=lambda x: x.node_type):
+            elem_type = elem_types[group]
+            self.batch_load(
+                elem_type=elem_type, data=recs, write=write, batch_size=batch_size
+            )
+
+    def add_synonyms_edges(self, write=False, batch_size=10_000):
+        stmt = """
     MATCH
         (a:synonym),
         (b:concept) 
     WHERE 
-        a.node_left = row.id_left
-        b.node_right = row.id_right
+        a.cui = b.cui
     MERGE 
-        (a)-[r:_SYN {datastring}]->(b)
+        (a)-[r:_SYN]->(b)
     RETURN type(r)
         """
-        columns = list(data.keys()) + ["id_left", "id_right"]
-        return source_table, batch_stmt, format_data, columns
-
-    @db_session
-    def add_edges(self, write=False, batch_size=10_000):
-        records = self.db.get_unique_edges()
-        self.batch_load_edges(
-            edge_type="_VERB", edges=records, batch_size=batch_size, write=write
-        )
-
-    @db_session
-    def add_concepts(self, write=False, batch_size=10_000):
-        records = self.db.get_records("concept_nodes")
-        elem_type = "concept_nodes"
-        self.batch_load(
-            elem_type=elem_type, data=records, write=write, batch_size=batch_size
-        )
-
-    @db_session
-    def add_synonyms(self, write=False, batch_size=10_000):
-        records = self.db.get_records("synonym_nodes")
-        elem_type = "synonym_nodes"
-        self.batch_load(
-            elem_type=elem_type, data=records, write=write, batch_size=batch_size
-        )
-
-    @db_session
-    def add_predicates(self, write=False, batch_size=200):
-        records = self.db.get_records("predicate_edges")
-        elem_type = "predicate_edges"
-        self.batch_load(
-            elem_type=elem_type, data=records, write=write, batch_size=batch_size
-        )
-
-    @db_session
-    def add_synonyms_edges(self, write=False, batch_size=10_000):
-        records = self.db.get_records("synonym_edges")
-        elem_type = "synonym_edges"
-        self.batch_load(
-            elem_type=elem_type, data=records, write=write, batch_size=batch_size
-        )
+        self.graph_db.query(stmt)
 
     def _load_batch(self, batch, elem_specs, temp_dir, write, importdiroffset):
-        source_table, batch_stmt, format_data, columns = elem_specs()
+        batch_stmt, format_data, columns = elem_specs()
         with tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".csv",

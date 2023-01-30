@@ -11,12 +11,14 @@ from connectors.neo4j import GraphDB
 from pipeline import PipelineStep
 
 from stages.article_parser import load_article
-from stages.summarizer import summarize_articles
+
+# from stages.summarizer import summarize_articles
 from stages.abbreviation_finder import find_abbreviations
 from stages.sentence_simplyfier import simplify_sentences
 
 from stages.abbreviation_substituter import substitute_abbreviations
-from stages.triple_extractor import extract_triples
+
+# from stages.triple_extractor import extract_triples
 from stages.graph_preparer import stage_nodes, stage_edges
 from stages.graph_writer import GraphWriter
 
@@ -89,9 +91,6 @@ def substitute_abbreviation_task(mode: str = "NEWER", write: bool = False) -> No
         pass
 
 
-
-
-
 @task
 def extract_triples_task(mode: str = "NEWER", write: bool = False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
@@ -130,12 +129,9 @@ def add_to_staging_task(mode: str = "NEWER", write: bool = False) -> None:
 def export_to_graph_task(mode: str = "NEWER", write: bool = False) -> None:
     db = Database.from_config(path=os.getenv("CONFIG_PATH"))
     graph_db = GraphDB.from_config(path=os.getenv("CONFIG_PATH"), key="neo4j_staging")
-    # add_nodes(db, graph_db, write=write)
     graph_writer = GraphWriter(db=db, graph_db=graph_db)
-    # graph_writer.add_concepts(write=write)
-    # graph_writer.add_synonyms(write=write)
-    graph_writer.add_predicates(write=write)
-    # graph_writer.add_synonyms_edges(write=write)
+    graph_writer.add_nodes(write=write)
+    graph_writer.add_edges(write=write)
 
 
 verify_graph = ShellTask(
@@ -164,9 +160,9 @@ def wf(mode: str = "FRESH", write: bool = False) -> None:
     # abbrevs = find_abbreviation_task(mode=mode, write=write)
     # simple_conclusions = simplify_conclusions_task(mode=mode, write=write)
     # subs = substitute_abbreviation_task(mode=mode, write=write)
-    triples = extract_triples_task(mode=mode, write=write)
+    # triples = extract_triples_task(mode=mode, write=write)
     # staged = add_to_staging_task(mode=mode, write=write)
-    #graph = export_to_graph_task(mode=mode, write=write)
+    graph = export_to_graph_task(mode=mode, write=write)
     # test_results = verify_graph()
 
     return None
