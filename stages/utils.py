@@ -1,6 +1,6 @@
 import more_itertools
 import tarfile
-import os
+import subprocess
 import pandas as pd
 
 
@@ -35,3 +35,11 @@ class TarFileReader:
 
 def batched(data, batch_size=100):
     yield from more_itertools.ichunked(data, batch_size)
+
+
+def git_hash() -> str:
+    process = subprocess.Popen(
+        ["git", "rev-parse", "HEAD"], shell=False, stdout=subprocess.PIPE
+    )
+    git_head_hash = process.communicate()[0].strip()
+    return git_head_hash.decode("utf-8")

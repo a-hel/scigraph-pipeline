@@ -8,7 +8,12 @@ from pony.orm import (
     select,
     db_session,
 )
-from pony.orm.core import EntityMeta
+from pony.orm.core import (
+    EntityMeta,
+    CacheIndexError,
+    TransactionIntegrityError,
+    DBSessionContextManager,
+)
 
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
@@ -71,6 +76,10 @@ class Database:
         self.logs = Log
         logger.debug(f"Connected to database:\t{user}@{host}:{port}/{database}")
 
+    @property
+    def session_handler(self):
+        return DBSessionContextManager()
+
     # def __del__(self):
     #    self.db.disconnect()
 
@@ -85,16 +94,19 @@ class Database:
         commit()
 
     # @db_session
-    def _add_record(self, data, table, periodic_commit=50):
+    def _add_record(self, data, table, periodic_commit=50, duplicates: str = "raise"):
         last_record = type("placeholder", (), {"id": 0})
         for e, elem in enumerate(data):
             try:
                 last_record = table(**elem)
             except TypeError as e:
-                print("***")
                 print(elem)
-                print(f"***{table}***")
                 raise (e)
+            except CacheIndexError as e:
+                if duplicates == "skip":
+                    logger.debug(e)
+                    continue
+                raise
             if not e % periodic_commit:
                 # logging.debug("Processing %s: %s" % (e, last_record))
                 self._commit(table, last_record)
@@ -108,9 +120,9 @@ class Database:
         # elems = select((c.id, c.conclusion, c.named_entities.matched_term, c.named_entities.preferred_term) for c in self.summaries if c.named_entities.id)
         yield from elems
 
-    def add_record(self, data, table, periodic_commit=50):
+    def add_record(self, data, table, periodic_commit=50, duplicates: str = "raise"):
         if isinstance(table, (str, EntityMeta)):
-            return self._add_record(data, table, periodic_commit)
+            return self._add_record(data, table, periodic_commit, duplicates=duplicates)
         elif isinstance(table, list):
             for elem in data:
                 for tbl in table:
@@ -118,8 +130,9 @@ class Database:
                         filtered_records = [elem[tbl._table_[-1]]]
                     except KeyError:
                         continue
-                    for filtered_record in filtered_records:
-                        last_id = self._add_record(filtered_record, tbl, periodic_commit)
+                    last_id = self._add_record(
+                        filtered_records, tbl, periodic_commit, duplicates=duplicates
+                    )
             return last_id
         raise TypeError("Expected table, name, or dict  got %s" % type(table))
 
@@ -144,17 +157,25 @@ class Database:
             )
         query = select_function(table, downstream)
         if order_by is not None:
-            column = getattr(table, order_by)
-            query = query.order_by(column)
+            if isinstance(order_by, str):
+                order_by = [order_by]
+            for order_column in order_by:
+                column = getattr(table, order_column)
+                query = query.order_by(column)
         return query
 
+    # @db_session
     def get_records(
         self, table, mode: RunModes = RunModes.ALL, downstream=None, order_by=None
     ):
         elems = self._build_query(
             table=table, mode=mode, downstream=downstream, order_by=order_by
         )
-        yield from elems
+        try:
+            yield from elems
+        except TransactionIntegrityError:
+            query = self.db.select(elems.get_sql())
+            yield from query
 
     def get_unique_nodes(self):
         nodes = select((n.cui, n.matched, n.preferred) for n in self.nodes).order_by(
@@ -166,7 +187,7 @@ class Database:
         edges = select(e for e in self.edges)
         yield from edges
 
-    @db_session
+    # @db_session
     def count_records(self, table, mode, downstream=None):
         query = self._build_query(
             table=table, mode=mode, downstream=downstream, order_by=None
@@ -204,8 +225,8 @@ class Database:
         last_id = self._add_record(data, self.named_entities, periodic_commit=100)
         return {"named_entity_id": last_id}
 
-    @staticmethod
-    def from_config(path="../config/dev.json", key="postgres"):
+    @classmethod
+    def from_config(cls, path="../config/dev.json", key="postgres"):
         with open(path, "r") as f:
             config = json.load(f)
         if key is not None:
@@ -213,4 +234,4 @@ class Database:
             logger.debug(f"Loaded Postgres config section {key} form file {path}.")
         else:
             logger.debug(f"Loaded Postgres config form file {path}.")
-        return Database(db, **config)
+        return cls(db, **config)

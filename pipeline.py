@@ -8,6 +8,8 @@ from pony.orm import db_session  # TODO: factor out somehow
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
 
+from custom_types import Records
+
 logger = PipelineLogger("Pipeline")
 
 
@@ -63,7 +65,7 @@ class PipelineStep:
                 "You must specify a downstream table if you want to write your results."
             )
 
-        def run_full():
+        def run_full() -> Generator[dict, None, None]:
             if self.upstream:
                 all_data = self.db.get_records(
                     table=self.upstream,
@@ -72,14 +74,15 @@ class PipelineStep:
                     order_by=order_by,
                 )
             yield from run(all_data)
+            # yield from run(all_data)
 
-        def run_one(id):
+        def run_one(id: int) -> Generator[dict, None, None]:
             if self.upstream:
                 data = self.db.get_by_id(table=self.upstream, id=id)
             yield from run(data)
 
-        @db_session
-        def run(data):
+        # @db_session
+        def run(data: Records) -> Generator[dict, None, None]:
             logger.info(f"Running step {self.name} (write = {write})")
             # logger.debug(f"{self.upstream._table_[-1]} -> {self.downstream._table_[-1]}")
             result = self.fn(data, **self.func_args)
@@ -101,7 +104,8 @@ class PipelineStep:
         write: bool = True,
         mode: RunModes = RunModes.ALL,
         order_by: str = None,
-    ):
+        duplicates: str = "raise",
+    ) -> Generator[dict, None, None]:
         if not isinstance(mode, RunModes):
             try:
                 mode = RunModes[mode.upper()]
@@ -124,7 +128,9 @@ class PipelineStep:
             result = run(id=id)
         return result
 
-    def as_func(self, write, mode=RunModes.ALL, order_by=False):
+    def as_func(
+        self, write: bool, mode=RunModes.ALL, order_by: bool = False
+    ) -> Callable:
         def func():
             return self.run_all(write, mode, order_by)
 

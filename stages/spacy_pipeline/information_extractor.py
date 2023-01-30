@@ -91,19 +91,19 @@ class Triple:
     def edges(self):
         pass
 
-    @staticmethod
-    def from_svo(clause):
+    @classmethod
+    def from_svo(cls, clause):
         obj = clause.direct_object or clause.indirect_object
         subj = clause.subject
         verb = clause.verb
-        return Triple(subject=subj, verb=verb, object_=obj)
+        return cls(subject=subj, verb=verb, object_=obj)
 
-    @staticmethod
-    def from_svc(clause):
+    @classmethod
+    def from_svc(cls, clause):
         subj = clause.subject
         verb = clause.verb
         obj = clause.complement
-        return Triple(subject=subj, verb=verb, object_=obj)
+        return cls(subject=subj, verb=verb, object_=obj)
 
 
 @spacy.Language.factory("InformationExtractor")

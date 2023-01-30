@@ -1,3 +1,18 @@
+"""
+    Main Flyte workflow, from reading plain-text articles
+    to uploading them to the cloud.
+
+    Currently only runs locally, rework is needed to run in flyte
+    cluster.
+
+    Run with
+    ```
+    pyflyte run workflow.py:wf --mode ALL|NEW|FRESH|ONE --write True|False
+    ```
+
+    2022 Andreas Helfenstein
+"""
+
 import os
 from typing import List, Dict
 
