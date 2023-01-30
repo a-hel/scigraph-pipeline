@@ -18,7 +18,7 @@ from stages.sentence_simplyfier import simplify_sentences
 
 from stages.abbreviation_substituter import substitute_abbreviations
 
-# from stages.triple_extractor import extract_triples
+from stages.triple_extractor import extract_triples
 from stages.graph_preparer import stage_nodes, stage_edges
 from stages.graph_writer import GraphWriter
 
@@ -160,9 +160,9 @@ def wf(mode: str = "FRESH", write: bool = False) -> None:
     # abbrevs = find_abbreviation_task(mode=mode, write=write)
     # simple_conclusions = simplify_conclusions_task(mode=mode, write=write)
     # subs = substitute_abbreviation_task(mode=mode, write=write)
-    # triples = extract_triples_task(mode=mode, write=write)
+    triples = extract_triples_task(mode=mode, write=write)
     # staged = add_to_staging_task(mode=mode, write=write)
-    graph = export_to_graph_task(mode=mode, write=write)
+    # graph = export_to_graph_task(mode=mode, write=write)
     # test_results = verify_graph()
 
     return None

@@ -198,7 +198,10 @@ class GraphWriter:
         (a)-[r:_SYN]->(b)
     RETURN type(r)
         """
-        self.graph_db.query(stmt)
+        if write:
+            self.graph_db.query(stmt)
+        else:
+            print(stmt)
 
     def _load_batch(self, batch, elem_specs, temp_dir, write, importdiroffset):
         batch_stmt, format_data, columns = elem_specs()
@@ -230,7 +233,9 @@ class GraphWriter:
         else:
             print(query)
 
-    def batch_load(self, elem_type, data, write=True, batch_size=5000):
+    def batch_load(
+        self, elem_type: str, data, write: bool = True, batch_size: int = 5000
+    ) -> None:
         neo4j_import_dir = self.graph_db.import_dir
         logger.debug(f"Found import directory at '{neo4j_import_dir}'.")
         try:
@@ -251,6 +256,3 @@ class GraphWriter:
                 logger.debug(
                     f"Loaded {len(result or [])} new records (batch size = {batch_size})."
                 )
-
-    def migrate(self, mode="Rebuild"):
-        pass
