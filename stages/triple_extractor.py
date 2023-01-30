@@ -38,8 +38,6 @@ def triples_to_graph(triples) -> nx.Graph:
 def _match_terms(records, nlp, name="conclusions"):
     linker = nlp.get_pipe("scispacy_linker")
     for e, record in enumerate(records):
-        if e > 10:
-            break
         doi = record.summary_id.article_id.doi
         summary_id = record.summary_id
         doc = nlp(record.conclusion)

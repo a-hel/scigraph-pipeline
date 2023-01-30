@@ -59,7 +59,13 @@ class PipelineStep:
         return table_id
 
     @contextmanager
-    def runner(self, mode, order_by=None, write=True):
+    def runner(
+        self,
+        mode: RunModes,
+        order_by: Optional[str] = None,
+        write: bool = True,
+        duplicates: str = "raise",
+    ) -> Generator:
         if write and not self.downstream:
             raise AttributeError(
                 "You must specify a downstream table if you want to write your results."
@@ -88,7 +94,9 @@ class PipelineStep:
             result = self.fn(data, **self.func_args)
             if write:
                 for elem in result:
-                    id_ = self.db.add_record(data=result, table=self.downstream)
+                    id_ = self.db.add_record(
+                        data=result, table=self.downstream, duplicates=duplicates
+                    )
                     elem.update({"id": id_})
                     yield elem
             else:
@@ -112,15 +120,18 @@ class PipelineStep:
             except KeyError:
                 msg = f"Unknown mode '{mode}'. Allowed values are {', '.join(RunModes.__members__.keys())}"
                 raise KeyError(msg)
-        try:
-            n_elems = self._count_upstream_rows(mode=mode)
-        except AttributeError as e:
-            logger.warning("Unable to count processable rows: %s" % e)
-            n_elems = None
-        with self.runner(write=write, mode=mode, order_by=order_by) as run:
-            # result = run()
-            for elem in tqdm(run(), total=n_elems, desc=self.name):
-                yield elem
+        with self.db.session_handler():
+            try:
+                n_elems = self._count_upstream_rows(mode=mode)
+            except AttributeError as e:
+                logger.warning("Unable to count processable rows: %s" % e)
+                n_elems = None
+            with self.runner(
+                write=write, mode=mode, order_by=order_by, duplicates=duplicates
+            ) as run:
+                # result = run()
+                for elem in tqdm(run(), total=n_elems, desc=self.name):
+                    yield elem
 
     def run_once(self, id: int, write: bool = True):
 

@@ -130,9 +130,8 @@ class Database:
                         filtered_records = [elem[tbl._table_[-1]]]
                     except KeyError:
                         continue
-                    last_id = self._add_record(
-                        filtered_records, tbl, periodic_commit, duplicates=duplicates
-                    )
+                    for filtered_record in filtered_records:
+                        last_id = self._add_record(filtered_record, tbl, periodic_commit)
             return last_id
         raise TypeError("Expected table, name, or dict  got %s" % type(table))
 
@@ -164,7 +163,7 @@ class Database:
                 query = query.order_by(column)
         return query
 
-    # @db_session
+    #@db_session
     def get_records(
         self, table, mode: RunModes = RunModes.ALL, downstream=None, order_by=None
     ):
@@ -187,7 +186,7 @@ class Database:
         edges = select(e for e in self.edges)
         yield from edges
 
-    # @db_session
+    #@db_session
     def count_records(self, table, mode, downstream=None):
         query = self._build_query(
             table=table, mode=mode, downstream=downstream, order_by=None
