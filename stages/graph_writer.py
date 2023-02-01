@@ -4,14 +4,171 @@ import csv
 import tempfile
 from itertools import groupby
 from datetime import datetime
+from datetime import datetime
+from abc import ABC
+from pathlib import Path
+from typing import List
+import shutil
 
 import more_itertools
 
-from pony.orm import db_session
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
+from stages.utils import git_hash
 
 logger = PipelineLogger("Neo4j")
+
+DATEFORMAT: str = "%Y-%m-%d"
+DEBUG = False
+GIT_VERSION = git_hash()
+
+
+@lru_cache
+def _load_date() -> str:
+    date = datetime.now().strftime(DATEFORMAT)
+    return date
+
+
+class GraphDBInterface(ABC):
+    name: str = None
+    props: list = None
+    stmt: str = None
+    label: str = None
+    data: dict = None
+    columns: list = None
+
+    def format_data(self, record):
+        pass
+
+
+class ConceptNodeIF(GraphDBInterface):
+    def __init__(self):
+        self.name = "Concept node"
+        self.props = ""
+        self.stmt = f"""
+    MERGE (a:concept {{cui: row.cui}})
+        SET a.name = row.name
+        SET a.date_added = date("{_load_date()}")
+        SET a.version = row.version
+        SET a.definition = row.definition
+        """
+        self.columns = ["node_id", "cui", "name", "definition", "date_added", "version"]
+
+    def format_data(self, record) -> dict:
+        attr = record.attributes
+        data = {
+            "node_id": record.id,
+            "cui": record.cui_or_name,
+            "name": attr["canonical_name"],
+            "definition": attr["definition"],
+            "version": record._version or GIT_VERSION,
+        }
+        return data
+
+
+class SynonymNodeIF(GraphDBInterface):
+    def __init__(self):
+        self.name = "Synonym node"
+        self.stmt = f"""
+        MERGE (a:synonym {{cui: row.cui, name: row.name, date_added: date("{_load_date()}"), version: row.version}})
+        RETURN count(a)
+        """
+        self.source_table = "synonym_nodes"
+        self.columns = ["cui", "name", "version"]
+
+    def format_data(self, record) -> dict:
+        data = {
+            "cui": record.cui,
+            "name": record.name,
+            "version": GIT_VERSION,
+        }
+        return data
+
+class PredicateEdgeIF(GraphDBInterface):
+    def __init__(self):
+        self.name = "Predicate edge"
+        self.source_table = "edges"
+        self.label = "_VERB"
+        self.stmt = f"""
+    MATCH
+        (a:concept),
+        (b:concept) 
+    WHERE 
+        a.cui = row.cui_left AND 
+        b.cui = row.cui_right
+    MERGE 
+        (a)-[r:{self.label} {{doi:row.doi}}]->(b)
+        SET r.name = row.name
+        SET r.summary = row.summary
+        SET r.conclusion = row.conclusion
+        SET r.predicate = row.predicate
+        SET r.date_added = date("{_load_date()}")
+        SET r.version = row.version
+    RETURN
+        count(r)
+        
+        """
+        self.columns = [
+            "name",
+            "conclusion",
+            "summary",
+            "doi",
+            "predicate",
+            "cui_left",
+            "cui_right",
+            "version",
+        ]
+
+    def format_data(self, record) -> dict:
+        attr = record.attributes
+        data = {
+            "name": attr["name"],
+                "conclusion": attr["conclusion"],
+                "summary": attr["summary"],
+                "doi": attr["doi"],
+                "predicate": attr["name"],
+                "cui_left": record.node_left,
+                "cui_right": record.node_right,
+            "version": GIT_VERSION,
+        }
+        return data
+
+class RelationalEdgeIF(GraphDBInterface):
+    def __init__(self):
+        self.name = "Relational edge"
+        self.source_table = "edges"
+        self.label = "_REL"
+        self.stmt = f"""
+    MATCH
+        (a:concept),
+        (b:concept) 
+    WHERE 
+        a.cui = row.cui_left AND 
+        b.cui = row.cui_right
+    MERGE 
+        (a)-[r:{self.label} {{doi:row.doi}}]->(b)
+        SET r.date_added = date("{_load_date()}")
+        SET r.version = row.version
+    RETURN
+        count(r)
+        
+        """
+        self.columns = [
+            "doi",
+            "cui_left",
+            "cui_right",
+            "version",
+        ]
+
+    def format_data(self, record) -> dict:
+        attr = record.attributes
+        data = {
+                "doi": attr["doi"],
+                "cui_left": record.node_left,
+                "cui_right": record.node_right,
+            "version": GIT_VERSION,
+        }
+        return data
 
 
 class GraphWriter:
@@ -19,192 +176,66 @@ class GraphWriter:
         self.db = db
         self.graph_db = graph_db
 
-        self.elem_types = {
-            "concept_nodes": self.load_concept_nodes,
-            "synonym_nodes": self.load_synonym_nodes,
-            "predicate_edges": self.load_predicate_edges,
-            "relational_edges": self.load_rel_edges,
-        }
-
     def _format_value(self, val, quote="'"):
 
         if isinstance(val, str):
             val = val.replace("'", '"')
             val = f"{quote}{val}{quote}"
+        elif isinstance(val, datetime):
+            val = val.strftime(DATEFORMAT)
         return val
 
-    def _serialize_props(self, data, quote=True):
-        quote = "'" if quote else ""
-        if not data:
-            datastring = ""
-        else:
-            labels = [
-                f"{label}:{self._format_value(value, quote=quote)}"
-                for label, value in data.items()
-                if value is not None
-            ]
-            datastring = " {%s}" % ", ".join(labels)
-        return datastring
+    def _add_elems(self, db_interface, records, write=False, batch_size=5000):
+        with self.db.session_handler():
+            source_table = db_interface.source_table
+            records = self.db.get_records(source_table)
+            self.batch_load(
+                db_interface=db_interface,
+                data=records,
+                write=write,
+                batch_size=batch_size,
+            )
 
-    @property
-    @lru_cache
-    def _load_date(self):
-        date = datetime.now().strftime("%Y-%m-%d")
-        return date
-
-    def load_concept_nodes(self):
-        def format_data(record):
-            attr = record.attributes
-            data = {
-                "node_id": record.id,
-                "cui": record.cui_or_name,
-                "name": attr["canonical_name"],
-                "definition": attr["definition"],
-            }
-
-            return data
-
-        data = {
-            "node_id": "row.node_id",
-            "cui": "row.cui",
-            "name": "row.name",
-            "definition": "row.definition",
-            "date_added": self._load_date,
-        }
-        datastring = self._serialize_props(data, quote=False)
-        batch_stmt = f"MERGE (a:concept {datastring})"
-        columns = ["node_id", "cui", "name", "definition"]
-        return batch_stmt, format_data, columns
-
-    def load_synonym_nodes(self):
-        def format_data(record):
-            data = {
-                "node_id": record.id,
-                "cui": record.cui_or_name,
-                "name": record.attributes["synonym"],
-            }
-            return data
-
-        data = {
-            "node_id": "row.node_id",
-            "cui": "row.cui",
-            "name": "row.name",
-            "date_added": self._load_date,
-        }
-        datastring = self._serialize_props(data, quote=False)
-        batch_stmt = f"MERGE (a:synonym {datastring})"
-        columns = ["node_id", "cui", "name"]
-        return batch_stmt, format_data, columns
-
-    def load_predicate_edges(self):
-        def format_data(record):
-            attr = record.attributes
-            data = {
-                "name": attr["name"],
-                "conclusion": attr["conclusion"],
-                "summary": attr["summary"],
-                "doi": attr["doi"],
-                "predicate": attr["name"],
-                "cui_left": record.node_left,
-                "cui_right": record.node_right,
-            }
-            return data
-
-        data = {
-            "name": "row.name",
-            "doi": "row.doi",
-            "predicate": "row.predicate",
-            "summary": "row.summary",
-            "conclusion": "row.conclusion",
-            "date_added": self._load_date,
-        }
-        datastring = self._serialize_props(data, quote=False)
-        batch_stmt = f"""
-    MATCH
-        (a:concept),
-        (b:concept) 
-    WHERE 
-        a.cui = row.cui_left AND 
-        b.cui = row.cui_right
-    MERGE 
-        (a)-[r:_VERB {datastring}]->(b)
-    RETURN type(r)
-        """
-        columns = [
-            "cui_left",
-            "cui_right",
-            "name",
-            "doi",
-            "predicate",
-            "summary",
-            "conclusion",
-        ]
-        return batch_stmt, format_data, columns
-
-    def load_rel_edges(self):
-        def format_data(record):
-            data = {
-                "cui_left": record.node_left,
-                "cui_right": record.node_right,
-                "doi": record.attributes["doi"],
-            }
-            return data
-
-        data = {"date_added": self._load_date, "doi": "row.doi"}
-        datastring = self._serialize_props(data, quote=False)
-        batch_stmt = f"""
-    MATCH
-        (a:concept),
-        (b:concept) 
-    WHERE 
-        a.cui = row.cui_left AND 
-        b.cui = row.cui_right
-    MERGE 
-        (a)-[r:_REL {datastring}]->(b)
-    RETURN type(r)
-        """
-        columns = ["cui_left", "cui_right", "doi"]
-        return batch_stmt, format_data, columns
-
-    @db_session
     def add_edges(self, write=False, batch_size=10_000):
-        elem_types = {"_VERB": "predicate_edges", "_REL": "relational_edges"}
-        records = self.db.get_records("edges", order_by="edge_type")
-        for group, recs in groupby(records, key=lambda x: x.edge_type):
-            elem_type = elem_types[group]
-            self.batch_load(
-                elem_type=elem_type, data=recs, write=write, batch_size=batch_size
-            )
-        self.add_synonyms_edges()
+        interfaces = {"_VERB": PredicateEdgeIF, "_REL": RelationalEdgeIF}
+        with self.db.session_handler():
+            records = self.db.get_records("edges", order_by="edge_type")
+            for group, recs in groupby(records, key=lambda x: x.edge_type):
+                interface = interfaces[group]()
+                self._add_elems(db_interface=interface,records=recs, write=write, batch_size=batch_size)
+        self.add_synonyms_edges(write = write, batch_size=batch_size)
 
-    @db_session
     def add_nodes(self, write=False, batch_size=10_000):
-        elem_types = {"concept": "concept_nodes", "synonym": "synonym_nodes"}
-        records = self.db.get_records("nodes", order_by="node_type")
-        for group, recs in groupby(records, key=lambda x: x.node_type):
-            elem_type = elem_types[group]
-            self.batch_load(
-                elem_type=elem_type, data=recs, write=write, batch_size=batch_size
-            )
+        interfaces = {"concept": ConceptNodeIF, "synonym": SynonymNodeIF}
+        with self.db.session_handler():
+            records = self.db.get_records("nodes", order_by="node_type")
+            for group, recs in groupby(records, key=lambda x: x.node_type):
+                interface = interfaces[group]()
+                self._add_elems(db_interface=interface,records=recs, write=write, batch_size=batch_size)
 
-    def add_synonyms_edges(self, write=False, batch_size=10_000):
+
+
+  
+
+    def add_synonyms_edges(self, write=False, batch_size=0):
         stmt = """
     MATCH
         (a:synonym),
         (b:concept) 
-    WHERE 
+    WHERE
         a.cui = b.cui
     MERGE 
-        (a)-[r:_SYN]->(b)
-    RETURN type(r)
-        """
+        (a)-[r:_SYN ]->(b)
+    RETURN
+        count(r)"""
         if write:
             self.graph_db.query(stmt)
         else:
             print(stmt)
 
-    def _load_batch(self, batch, elem_specs, temp_dir, write, importdiroffset):
-        batch_stmt, format_data, columns = elem_specs()
+    def _load_batch(
+        self, batch, db_interface: GraphDBInterface, temp_dir: Path, write: bool
+    ):
         with tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".csv",
@@ -213,25 +244,29 @@ class GraphWriter:
             newline=os.linesep,
             dir=temp_dir,
         ) as f:
-            temp_file = os.path.join(temp_dir, f.name)
+            temp_file = temp_dir / f.name
             logger.debug(f"Created temporary file at '{temp_file}'")
 
             writer = csv.writer(f, quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow(columns)
+            writer.writerow(db_interface.columns)
             for record in batch:
-                data = format_data(record)
-                row = [data[col] for col in columns]
+                data = db_interface.format_data(record)
+                row = [data[col] for col in db_interface.columns]
                 writer.writerow(row)
-        temp_file_relative = temp_file[importdiroffset + 1 :]
+        temp_file_relative = Path(*temp_file.parts[-2:])
+        # datastring = self._serialize_props(db_interface.data, quote=False)
         query = (
             f'LOAD CSV WITH HEADERS FROM "file:///{temp_file_relative}" AS row '
-            + batch_stmt
+            + db_interface.stmt
         )
+
+        if DEBUG:
+            shutil.copyfile(src=temp_file, dst=f"debug_{_load_date()}.csv")
         if write:
             result = self.graph_db.query(query, out="list")
             return result
         else:
-            print(query)
+            logger.info(query)
 
     def batch_load(
         self, elem_type: str, data, write: bool = True, batch_size: int = 5000
@@ -250,8 +285,7 @@ class GraphWriter:
                     batch,
                     elem_specs,
                     temp_dir,
-                    write,
-                    importdiroffset=len(neo4j_import_dir),
+                    write
                 )
                 logger.debug(
                     f"Loaded {len(result or [])} new records (batch size = {batch_size})."

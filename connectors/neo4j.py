@@ -59,6 +59,7 @@ class GraphDB:
             "CREATE INDEX concept_index_cui IF NOT EXISTS FOR (n:concept) ON (n.cui)",
             "CREATE INDEX synonym_index_cui IF NOT EXISTS FOR (n:synonym) ON (n.cui)",
             "CREATE INDEX predicate_index_doi IF NOT EXISTS FOR ()-[r:_VERB]-() ON (r.doi)",
+            "CREATE INDEX relational_index_doi IF NOT EXISTS FOR ()-[r:_REL]-() ON (r.doi)",
         ]
         for stmt in stmts:
             self.query(stmt)
