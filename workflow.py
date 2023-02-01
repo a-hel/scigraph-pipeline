@@ -18,7 +18,7 @@ from typing import List, Dict
 
 from dotenv import load_dotenv
 from tqdm import tqdm
-from flytekit import task, workflow
+from flytekit import task, workflow, kwtypes
 from flytekit.extras.tasks.shell import OutputLocation, ShellTask
 
 from connectors.postgres import Database
@@ -159,12 +159,12 @@ verify_graph = ShellTask(
 )
 
 
-@task
-def migrate_graph(mode: str = "NEWER", drop: bool = False) -> None:
-    source_db = GraphDB.from_config(path=os.getenv("CONFIG_PATH"), key="neo4j_staging")
-    target_db = GraphDB.from_config(
-        path=os.getenv("CONFIG_PATH"), key="neo4j_production"
-    )
+migrate_graph = ShellTask(
+    name="migrate_to_cloud",
+    debug=True,
+    script="""bash ./stages/migrate_db.sh --write {inputs.write} --mode {inputs.mode}""",
+    inputs=kwtypes(write=bool, mode=str),
+)
 
 
 @workflow
@@ -175,10 +175,11 @@ def wf(mode: str = "FRESH", write: bool = False) -> None:
     # abbrevs = find_abbreviation_task(mode=mode, write=write)
     # simple_conclusions = simplify_conclusions_task(mode=mode, write=write)
     # subs = substitute_abbreviation_task(mode=mode, write=write)
-    #triples = extract_triples_task(mode=mode, write=write)
+    # triples = extract_triples_task(mode=mode, write=write)
     # staged = add_to_staging_task(mode=mode, write=write)
-    graph = export_to_graph_task(mode=mode, write=write)
+    # graph = export_to_graph_task(mode=mode, write=write)
     # test_results = verify_graph()
+    migration = migrate_graph(mode=mode, write=write)
 
     return None
 

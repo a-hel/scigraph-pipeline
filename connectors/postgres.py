@@ -6,7 +6,6 @@ from datetime import datetime
 from pony.orm import (
     commit,
     select,
-    db_session,
 )
 from pony.orm.core import (
     EntityMeta,
@@ -25,13 +24,8 @@ from models.db_tables import (
     Abbreviation,
     SimpleConclusions,
     SimpleSubstitutedConclusions,
-    NamedEntity,
     Node,
     Edge,
-    ConceptNode,
-    SynonymNode,
-    PredicateEdge,
-    SynonymEdge,
     Log,
 )
 
@@ -66,13 +60,8 @@ class Database:
         self.summaries = Summary
         self.simple_conclusions = SimpleConclusions
         self.simple_substituted_conclusions = SimpleSubstitutedConclusions
-        self.named_entities = NamedEntity
         self.nodes = Node
-        self.concept_nodes = ConceptNode
-        self.synonym_nodes = SynonymNode
         self.edges = Edge
-        self.predicate_edges = PredicateEdge
-        self.synonym_edges = SynonymEdge
         self.logs = Log
         logger.debug(f"Connected to database:\t{user}@{host}:{port}/{database}")
 
@@ -131,7 +120,9 @@ class Database:
                     except KeyError:
                         continue
                     for filtered_record in filtered_records:
-                        last_id = self._add_record(filtered_record, tbl, periodic_commit)
+                        last_id = self._add_record(
+                            filtered_record, tbl, periodic_commit
+                        )
             return last_id
         raise TypeError("Expected table, name, or dict  got %s" % type(table))
 
@@ -163,7 +154,7 @@ class Database:
                 query = query.order_by(column)
         return query
 
-    #@db_session
+    # @db_session
     def get_records(
         self, table, mode: RunModes = RunModes.ALL, downstream=None, order_by=None
     ):
@@ -186,7 +177,7 @@ class Database:
         edges = select(e for e in self.edges)
         yield from edges
 
-    #@db_session
+    # @db_session
     def count_records(self, table, mode, downstream=None):
         query = self._build_query(
             table=table, mode=mode, downstream=downstream, order_by=None

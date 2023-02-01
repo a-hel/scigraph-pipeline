@@ -75,17 +75,6 @@ class SimpleSubstitutedConclusions(db.Entity):
     conclusion = Required(str)
     date_added = Required(datetime)
     error = Optional(str)
-    named_entities = Set("NamedEntity", reverse="ss_conclusion_id")
-
-
-class NamedEntity(db.Entity):
-    _table_ = (DB_SCHEMA, "named_entities")
-    id = PrimaryKey(int, auto=True)
-    ss_conclusion_id = Required(SimpleSubstitutedConclusions, reverse="named_entities")
-    matched_term = Required(str)
-    preferred_term = Required(str)
-    cui = Required(str)
-    metamap_version = Required(str)
 
 
 class Node(db.Entity):
@@ -95,29 +84,6 @@ class Node(db.Entity):
     node_type = Required(str, unique=False)
     cui_or_name = Required(str, unique=False)
     attributes = Required(Json)
-    concept_nodes = Set("ConceptNode", reverse="node_id")
-
-
-class ConceptNode(db.Entity):
-    _table_ = (DB_SCHEMA, "concept_nodes")
-    id = PrimaryKey(int, auto=True)
-    node_id = Required(Node, reverse="concept_nodes")
-    cui = Required(str, unique=True)
-    canonical_name = Required(str)
-    definition = Required(str)
-    _version = Optional(str)
-    _date_added = Required(datetime)
-
-
-class SynonymNode(db.Entity):
-    _table_ = (DB_SCHEMA, "synonym_nodes")
-    id = PrimaryKey(int, auto=True)
-    node_id = Required(int, unique=True)
-    cui = Required(str)
-    canonical_name = Required(str)
-    definition = Optional(str)
-    _version = Optional(str)
-    _date_added = Required(datetime)
 
 
 class Edge(db.Entity):
@@ -128,33 +94,6 @@ class Edge(db.Entity):
     node_right = Required(str)
     edge_type = Required(str)
     attributes = Required(Json)
-    predicate_edges = Set("PredicateEdge", reverse="edge_id")
-
-
-class PredicateEdge(db.Entity):
-    _table_ = (DB_SCHEMA, "predicate_edges")
-    id = PrimaryKey(int, auto=True)
-    edge_id = Required(Edge, reverse="predicate_edges")
-    name = Required(str)
-    doi = Required(str)
-    summary = Required(str)
-    conclusion = Required(str)
-    cui_left = Required(str)
-    cui_right = Required(str)
-    _version = Optional(str)
-    _date_added = Required(datetime)
-    composite_key(doi, cui_left, cui_right)
-
-
-class SynonymEdge(db.Entity):
-    _table_ = (DB_SCHEMA, "synonym_edges")
-    id = PrimaryKey(int, auto=True)
-    node_id_left = Required(int, unique=True)
-    node_id_right = Required(int)
-    name_left = Required(str)
-    name_right = Required(str)
-    _version = Optional(str)
-    _date_added = Required(datetime)
 
 
 class Log(db.Entity):

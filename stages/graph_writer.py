@@ -52,7 +52,7 @@ class ConceptNodeIF(GraphDBInterface):
         SET a.version = row.version
         SET a.definition = row.definition
         """
-        self.columns = ["node_id", "cui", "name", "definition", "date_added", "version"]
+        self.columns = ["node_id", "cui", "name", "definition", "version"]
 
     def format_data(self, record) -> dict:
         attr = record.attributes
@@ -61,7 +61,7 @@ class ConceptNodeIF(GraphDBInterface):
             "cui": record.cui_or_name,
             "name": attr["canonical_name"],
             "definition": attr["definition"],
-            "version": record._version or GIT_VERSION,
+            "version": GIT_VERSION,
         }
         return data
 
@@ -78,11 +78,12 @@ class SynonymNodeIF(GraphDBInterface):
 
     def format_data(self, record) -> dict:
         data = {
-            "cui": record.cui,
-            "name": record.name,
+            "cui": record.cui_or_name,
+            "name": record.cui_or_name,
             "version": GIT_VERSION,
         }
         return data
+
 
 class PredicateEdgeIF(GraphDBInterface):
     def __init__(self):
@@ -94,8 +95,8 @@ class PredicateEdgeIF(GraphDBInterface):
         (a:concept),
         (b:concept) 
     WHERE 
-        a.cui = row.cui_left AND 
-        b.cui = row.cui_right
+        b.cui = row.cui_left AND 
+        a.cui = row.cui_right
     MERGE 
         (a)-[r:{self.label} {{doi:row.doi}}]->(b)
         SET r.name = row.name
@@ -123,15 +124,16 @@ class PredicateEdgeIF(GraphDBInterface):
         attr = record.attributes
         data = {
             "name": attr["name"],
-                "conclusion": attr["conclusion"],
-                "summary": attr["summary"],
-                "doi": attr["doi"],
-                "predicate": attr["name"],
-                "cui_left": record.node_left,
-                "cui_right": record.node_right,
+            "conclusion": attr["conclusion"],
+            "summary": attr["summary"],
+            "doi": attr["doi"],
+            "predicate": attr["name"],
+            "cui_left": record.node_left,
+            "cui_right": record.node_right,
             "version": GIT_VERSION,
         }
         return data
+
 
 class RelationalEdgeIF(GraphDBInterface):
     def __init__(self):
@@ -143,8 +145,8 @@ class RelationalEdgeIF(GraphDBInterface):
         (a:concept),
         (b:concept) 
     WHERE 
-        a.cui = row.cui_left AND 
-        b.cui = row.cui_right
+        b.cui = row.cui_left AND 
+        a.cui = row.cui_right
     MERGE 
         (a)-[r:{self.label} {{doi:row.doi}}]->(b)
         SET r.date_added = date("{_load_date()}")
@@ -163,9 +165,9 @@ class RelationalEdgeIF(GraphDBInterface):
     def format_data(self, record) -> dict:
         attr = record.attributes
         data = {
-                "doi": attr["doi"],
-                "cui_left": record.node_left,
-                "cui_right": record.node_right,
+            "doi": attr["doi"],
+            "cui_left": record.node_left,
+            "cui_right": record.node_right,
             "version": GIT_VERSION,
         }
         return data
@@ -202,8 +204,13 @@ class GraphWriter:
             records = self.db.get_records("edges", order_by="edge_type")
             for group, recs in groupby(records, key=lambda x: x.edge_type):
                 interface = interfaces[group]()
-                self._add_elems(db_interface=interface,records=recs, write=write, batch_size=batch_size)
-        self.add_synonyms_edges(write = write, batch_size=batch_size)
+                self.batch_load(
+                    db_interface=interface,
+                    data=recs,
+                    write=write,
+                    batch_size=batch_size,
+                )
+        self.add_synonyms_edges(write=write, batch_size=batch_size)
 
     def add_nodes(self, write=False, batch_size=10_000):
         interfaces = {"concept": ConceptNodeIF, "synonym": SynonymNodeIF}
@@ -211,11 +218,12 @@ class GraphWriter:
             records = self.db.get_records("nodes", order_by="node_type")
             for group, recs in groupby(records, key=lambda x: x.node_type):
                 interface = interfaces[group]()
-                self._add_elems(db_interface=interface,records=recs, write=write, batch_size=batch_size)
-
-
-
-  
+                self.batch_load(
+                    db_interface=interface,
+                    data=recs,
+                    write=write,
+                    batch_size=batch_size,
+                )
 
     def add_synonyms_edges(self, write=False, batch_size=0):
         stmt = """
@@ -268,25 +276,26 @@ class GraphWriter:
         else:
             logger.info(query)
 
+    def _count_results(self, n_results: List["Record"]) -> str:
+        try:
+            n = "%d" % n_results[0].value()
+        except (IndexError, AttributeError):
+            n = "n/a"
+        return n
+
     def batch_load(
-        self, elem_type: str, data, write: bool = True, batch_size: int = 5000
-    ) -> None:
+        self,
+        db_interface: GraphDBInterface,
+        data,
+        write: bool = True,
+        batch_size: int = 5000,
+    ):
         neo4j_import_dir = self.graph_db.import_dir
         logger.debug(f"Found import directory at '{neo4j_import_dir}'.")
-        try:
-            elem_specs = self.elem_types[elem_type]
-        except KeyError:
-            raise KeyError(
-                f"Invalid element type: '{elem_type}'. Allowed are '{', '.join(self.elem_types.keys())}'"
-            )
         with tempfile.TemporaryDirectory(dir=neo4j_import_dir) as temp_dir:
+            temp_dir_path = Path(temp_dir)
             for batch in more_itertools.ichunked(data, batch_size):
-                result = self._load_batch(
-                    batch,
-                    elem_specs,
-                    temp_dir,
-                    write
-                )
+                n_results = self._load_batch(batch, db_interface, temp_dir_path, write)
                 logger.debug(
-                    f"Loaded {len(result or [])} new records (batch size = {batch_size})."
+                    f"Loaded {self._count_results(n_results)} new records (batch size = {batch_size})."
                 )

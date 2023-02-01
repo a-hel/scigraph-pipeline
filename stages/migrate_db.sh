@@ -5,7 +5,7 @@
 WRITE=False
 OVERWRITE=False
 DEV_DATABASE=neo4j
-STAGING_DATABASE=neo4j_staging
+STAGING_DATABASE="neo4j-staging"
 
 for arg in $@; do
     case $arg in
