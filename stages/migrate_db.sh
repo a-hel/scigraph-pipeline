@@ -52,6 +52,8 @@ then
     exit 0
 fi
 
+# mv $NEO4J_HOME/data/databases/$STAGING_DATABASE $NEO4J_HOME/data/databases/$STAGING_DATABASE_backup
+
 "$NEO4J_HOME/bin/neo4j" stop && \
 "$NEO4J_HOME/bin/neo4j-admin" copy --to-database=$STAGING_DATABASE --from-database=$DEV_DATABASE --force && \
 "$NEO4J_HOME/bin/neo4j-admin" push-to-cloud \
@@ -60,3 +62,5 @@ fi
     --username $TARGET_USER \
     --password $TARGET_PASS \
     $OVERWRITE
+
+# TODO: add indexes

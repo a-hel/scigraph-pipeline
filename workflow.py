@@ -177,9 +177,9 @@ def wf(mode: str = "FRESH", write: bool = False) -> None:
     # subs = substitute_abbreviation_task(mode=mode, write=write)
     # triples = extract_triples_task(mode=mode, write=write)
     # staged = add_to_staging_task(mode=mode, write=write)
-    # graph = export_to_graph_task(mode=mode, write=write)
+    graph = export_to_graph_task(mode=mode, write=write)
     # test_results = verify_graph()
-    migration = migrate_graph(mode=mode, write=write)
+    # migration = migrate_graph(mode=mode, write=write)
 
     return None
 
