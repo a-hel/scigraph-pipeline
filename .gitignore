@@ -3,3 +3,6 @@
 **/*.ipynb
 config/*.json
 assets
+.env
+logs/*
+.vscode/**/*

@@ -1,9 +1,12 @@
 from datetime import datetime
 
 from itertools import groupby
+from typing import Generator, Dict, List
+
+from custom_types import Records, DbTable
 
 
-def stage_nodes(data):
+def stage_nodes(data: Records) -> Generator[Dict[str, List[DbTable]], None, None]:
     for preferred, nodes in groupby(data, key=lambda x: x.preferred):
         all_nodes = list(set(nodes))
         first_node = all_nodes[0]
@@ -15,28 +18,29 @@ def stage_nodes(data):
         }
         yield {"concept_nodes": concept_data}
         all_nodes.sort(key=lambda x: x.matched.casefold())
-        for name, nodes in groupby(all_nodes, key=lambda x: x.matched.casefold()):
-            for node in nodes:
+        for name, nodes_ in groupby(all_nodes, key=lambda x: x.matched.casefold()):
+            synonym_data = None
+
+            for node in nodes_:
                 synonym_data = {
                     "cui": node.cui,
                     "name": node.matched.title(),
                     "_date_added": datetime.now(),
                 }
-                synonym_edge = {
-                    "id_left": node.id,
-                    "id_right": first_node.id,
-                    "_date_added": datetime.now(),
-                }
+
                 break
-            yield {"synonym_nodes": synonym_data, "synonym_edges": synonym_edge}
+            if synonym_data is None:
+                continue
+            yield {"synonym_nodes": synonym_data}
 
 
 def stage_edges(data):
     for record in data:
+        doi = record.summary_id.article_id.doi
         predicate_edge = {
             "edge_id": record.id,
             "name": record.predicate,
-            "doi": record.summary_id.article_id.doi,
+            "doi": doi,
             "summary": record.summary_id.summary,
             "conclusion": record.summary_id.conclusion,
             "cui_left": record.cui_left,

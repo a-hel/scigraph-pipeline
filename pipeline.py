@@ -8,6 +8,8 @@ from pony.orm import db_session  # TODO: factor out somehow
 from utils.run_modes import RunModes
 from utils.logging import PipelineLogger
 
+from custom_types import Records
+
 logger = PipelineLogger("Pipeline")
 
 
@@ -57,13 +59,19 @@ class PipelineStep:
         return table_id
 
     @contextmanager
-    def runner(self, mode, order_by=None, write=True):
+    def runner(
+        self,
+        mode: RunModes,
+        order_by: Optional[str] = None,
+        write: bool = True,
+        duplicates: str = "raise",
+    ) -> Generator:
         if write and not self.downstream:
             raise AttributeError(
                 "You must specify a downstream table if you want to write your results."
             )
 
-        def run_full():
+        def run_full() -> Generator[dict, None, None]:
             if self.upstream:
                 all_data = self.db.get_records(
                     table=self.upstream,
@@ -72,20 +80,23 @@ class PipelineStep:
                     order_by=order_by,
                 )
             yield from run(all_data)
+            # yield from run(all_data)
 
-        def run_one(id):
+        def run_one(id: int) -> Generator[dict, None, None]:
             if self.upstream:
                 data = self.db.get_by_id(table=self.upstream, id=id)
             yield from run(data)
 
-        @db_session
-        def run(data):
+        # @db_session
+        def run(data: Records) -> Generator[dict, None, None]:
             logger.info(f"Running step {self.name} (write = {write})")
             # logger.debug(f"{self.upstream._table_[-1]} -> {self.downstream._table_[-1]}")
             result = self.fn(data, **self.func_args)
             if write:
                 for elem in result:
-                    id_ = self.db.add_record(data=result, table=self.downstream)
+                    id_ = self.db.add_record(
+                        data=result, table=self.downstream, duplicates=duplicates
+                    )
                     elem.update({"id": id_})
                     yield elem
             else:
@@ -101,22 +112,26 @@ class PipelineStep:
         write: bool = True,
         mode: RunModes = RunModes.ALL,
         order_by: str = None,
-    ):
+        duplicates: str = "raise",
+    ) -> Generator[dict, None, None]:
         if not isinstance(mode, RunModes):
             try:
                 mode = RunModes[mode.upper()]
             except KeyError:
                 msg = f"Unknown mode '{mode}'. Allowed values are {', '.join(RunModes.__members__.keys())}"
                 raise KeyError(msg)
-        try:
-            n_elems = self._count_upstream_rows(mode=mode)
-        except AttributeError as e:
-            logger.warning("Unable to count processable rows: %s" % e)
-            n_elems = None
-        with self.runner(write=write, mode=mode, order_by=order_by) as run:
-            # result = run()
-            for elem in tqdm(run(), total=n_elems, desc=self.name):
-                yield elem
+        with self.db.session_handler():
+            try:
+                n_elems = self._count_upstream_rows(mode=mode)
+            except AttributeError as e:
+                logger.warning("Unable to count processable rows: %s" % e)
+                n_elems = None
+            with self.runner(
+                write=write, mode=mode, order_by=order_by, duplicates=duplicates
+            ) as run:
+                # result = run()
+                for elem in tqdm(run(), total=n_elems, desc=self.name):
+                    yield elem
 
     def run_once(self, id: int, write: bool = True):
 
@@ -124,7 +139,9 @@ class PipelineStep:
             result = run(id=id)
         return result
 
-    def as_func(self, write, mode=RunModes.ALL, order_by=False):
+    def as_func(
+        self, write: bool, mode=RunModes.ALL, order_by: bool = False
+    ) -> Callable:
         def func():
             return self.run_all(write, mode, order_by)
 
